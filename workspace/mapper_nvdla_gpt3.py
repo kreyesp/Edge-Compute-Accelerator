@@ -5,8 +5,13 @@ Runs the accelforge FFM mapper over the dense workload and prints
 per-einsum EDP results.
 """
 
+import matplotlib
+matplotlib.use('Agg')  # non-interactive backend — must be set before importing pyplot
+import matplotlib.pyplot as plt
+
 import accelforge as af
 from accelforge.frontend.mapper.metrics import Metrics
+from accelforge.plotting.mappings import plot_energy_breakdown, plot_latency_comparison
 
 ARCH_FILE     = 'workspace/arches/nvdla.yaml'
 WORKLOAD_FILE = 'workspace/workloads/gpt3_6.7B_kv_cache.yaml'
@@ -73,7 +78,36 @@ def main():
     print('\n=== Best Mapping (YAML) ===')
     print(best.mapping().to_yaml())
 
-    
+    # ---------------------------------------------------------
+    # NEW CODE: Plotting the relevant mapping data
+    # ---------------------------------------------------------
+    print('\nGenerating plots...')
+
+    try:
+        # 1. Plot energy breakdown for the single best EDP mapping
+        fig_energy, axes_energy = plot_energy_breakdown(
+            mappings=[best],
+            separate_by=['einsum'],
+            stack_by=['component'],
+            labels=['Best EDP Mapping']
+        )
+        fig_energy.suptitle('Energy Breakdown per Einsum (Best Mapping)')
+        fig_energy.tight_layout()
+        fig_energy.savefig('best_mapping_energy_breakdown.png')
+        print("Saved 'best_mapping_energy_breakdown.png'.")
+
+        # 2. Plot latency comparison across ALL generated mappings
+        fig_lat_comp, ax_lat_comp = plot_latency_comparison(
+            mappings=[all_mappings],
+            labels=['All Mappings']
+        )
+        fig_lat_comp.suptitle('Total Latency Comparison Across All Mappings')
+        fig_lat_comp.tight_layout()
+        fig_lat_comp.savefig('all_mappings_latency_comparison.png')
+        print("Saved 'all_mappings_latency_comparison.png'.")
+
+    except Exception as e:
+        print(f"Failed to generate plots: {e}")
 
 
 if __name__ == '__main__':
