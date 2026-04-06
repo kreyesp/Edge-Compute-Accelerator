@@ -1,5 +1,5 @@
 """
-Mapper: NVDLA architecture + GPT-3 6.7B KV-Cache workload.
+Mapper: NVDLA architecture + GPT-3 175B KV-Cache workload.
 
 Runs the accelforge FFM mapper over the dense workload and prints
 per-einsum EDP results.
@@ -14,13 +14,15 @@ from accelforge.frontend.mapper.metrics import Metrics
 from accelforge.plotting.mappings import plot_energy_breakdown, plot_latency_comparison
 
 ARCH_FILE     = 'workspace/arches/nvdla.yaml'
-WORKLOAD_FILE = 'workspace/workloads/gpt3_6.7B_kv_cache.yaml'
+# UPDATED: Pointing to the new 175B workload
+WORKLOAD_FILE = 'workspace/workloads/gpt3_175B_kv_cache.yaml' 
 
 # Jinja2 template variables for the workload.
-# Keep sizes small enough to run in reasonable time; adjust as needed.
+# UPDATED: N_TOKENS increased to 1024 to guarantee a large search space 
+# and populate the latency plot, while remaining fast enough to test.
 JINJA_DATA = {
     'BATCH_SIZE':    1,
-    'N_TOKENS':      128,
+    'N_TOKENS':      1024, 
     'N_NEW_TOKENS':  1,
 }
 
@@ -40,7 +42,7 @@ def min_edp_filter(data):
 
 
 def main():
-    print('Building spec: NVDLA arch + GPT-3 6.7B KV-Cache workload...')
+    print('Building spec: NVDLA arch + GPT-3 175B KV-Cache workload...')
     spec = af.Spec.from_yaml(
         ARCH_FILE,
         WORKLOAD_FILE,
@@ -81,29 +83,30 @@ def main():
     # ---------------------------------------------------------
     # NEW CODE: Plotting the relevant mapping data
     # ---------------------------------------------------------
-    print('\nGenerating plots...')
+    print('\n Generating plots...')
+    
+    # Use .data to get the true number of generated mappings
+    mapping_list = all_mappings.data
+    print("THIS IS THE TRUE MAPPINGS LENGTH: " + str(len(mapping_list)))
 
     try:
         # 1. Plot energy breakdown for the single best EDP mapping
         fig_energy, axes_energy = plot_energy_breakdown(
-            mappings=[best],
-            separate_by=['einsum'],
-            stack_by=['component'],
-            labels=['Best EDP Mapping']
+            [best], ['einsum', 'component'], ['action'], ['Best EDP Mapping']
         )
         fig_energy.suptitle('Energy Breakdown per Einsum (Best Mapping)')
         fig_energy.tight_layout()
-        fig_energy.savefig('best_mapping_energy_breakdown.png')
+        fig_energy.savefig('best_mapping_energy_breakdown.png', bbox_inches='tight')
         print("Saved 'best_mapping_energy_breakdown.png'.")
 
         # 2. Plot latency comparison across ALL generated mappings
+        # Pass the wrapper object, just as accelforge expects
         fig_lat_comp, ax_lat_comp = plot_latency_comparison(
-            mappings=[all_mappings],
-            labels=['All Mappings']
+            [all_mappings], ['All Mappings']
         )
         fig_lat_comp.suptitle('Total Latency Comparison Across All Mappings')
         fig_lat_comp.tight_layout()
-        fig_lat_comp.savefig('all_mappings_latency_comparison.png')
+        fig_lat_comp.savefig('all_mappings_latency_comparison.png', bbox_inches='tight')
         print("Saved 'all_mappings_latency_comparison.png'.")
 
     except Exception as e:
