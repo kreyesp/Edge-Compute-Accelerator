@@ -1,0 +1,48 @@
+arch:
+  nodes:
+  # Off-chip: Single LPDDR5x channel
+  # 9.6 GT/s * 2 bytes (16-bit bus) = 19.2 GB/s
+  - !Memory
+    name: MainMemory
+    size: inf
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
+    - {name: write, energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
+    tensors: {keep: ~Intermediates, may_keep: All}
+
+  # On-chip shared SRAM (Global Buffer equivalent)
+  # Tensix L2: 64 banks * 64 B/clk/bank at 1000 MHz = 4096 GB/s internal BW
+  # Total capacity: 768KB (edge-constrained, < 1MB budget)
+  - !Memory
+    name: GlobalBuffer
+    size: 768 * 1024 * 8  # 768KB in bits
+    total_latency: max(read_latency, write_latency)
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 0.249e-12, latency: 1 / (64 * 64 * 1000e6)}
+    - {name: write, energy: 0.249e-12, latency: 1 / (64 * 64 * 1000e6)}
+    tensors: {keep: All}
+
+  # Spatial array: 2 Tensix cores, each with 4 matrix units = 8 MACs
+  # Reuse input across cores, reuse output across units within a core
+  - !Container
+    name: ProcessingElement
+    spatial:
+    - {name: reuse_input, fanout: 2, may_reuse: input, reuse: input, min_usage: 1}
+    - {name: reuse_output, fanout: 4, may_reuse: output, reuse: output, min_usage: 1}
+
+  # Per-PE register file: holds one weight tile
+  - !Memory
+    name: Register
+    size: weight.bits_per_value if weight else 1
+    component_class: Dummy
+    tensors: {keep: weight}
+
+  # MAC unit: 2048 ops/clk at 1000 MHz (mac throughput from Tensix spec)
+  # Latency = 1 / (2048 * 1e9) per op
+  - !Compute
+    name: MAC
+    leak_power: 0
+    actions:
+    - {name: compute, energy: 0.084e-12, latency: 1 / (2048 * 1e9)}
