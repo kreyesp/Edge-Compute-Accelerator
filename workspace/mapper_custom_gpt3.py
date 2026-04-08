@@ -83,8 +83,6 @@ def main():
     # Plotting
     print('\nGenerating plots...')
     mapping_list = all_mappings.data
-    print('\nGenerating plots...')
-    mapping_list = all_mappings.data
 
     n_to_show = 10
 
