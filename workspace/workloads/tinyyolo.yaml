@@ -1,0 +1,149 @@
+# TinyYOLOv2 Workload for AccelForge
+# Reference: https://pjreddie.com/darknet/yolov2/
+#
+# TinyYOLOv2 is a lightweight object detection network with 9 convolutional
+# layers and maxpool operations. We model only the convolutions as einsums
+# since they dominate compute (>99% of MACs). Maxpools halve spatial dims
+# between certain layers but are not modeled as einsums — they are cheap
+# elementwise ops. We account for them by using the correct post-pool
+# spatial dimensions as inputs to the next conv layer.
+#
+# Input: 416x416x3 image (standard YOLO input)
+# Output: 13x13x125 detection grid (5 anchors * 25 = 125)
+#
+# Conv notation:  O[b, p, q, k] = I[b, p+r, q+s, c] * W[k, r, s, c]
+#   b = batch, p/q = output height/width, r/s = kernel height/width
+#   c = input channels, k = output channels
+#
+# Layers (from Darknet cfg):
+#   Layer 1: 416x416x3   -> 416x416x16,  3x3, then maxpool -> 208x208x16
+#   Layer 2: 208x208x16  -> 208x208x32,  3x3, then maxpool -> 104x104x32
+#   Layer 3: 104x104x32  -> 104x104x64,  3x3, then maxpool -> 52x52x64
+#   Layer 4: 52x52x64    -> 52x52x128,   3x3, then maxpool -> 26x26x128
+#   Layer 5: 26x26x128   -> 26x26x256,   3x3, then maxpool -> 13x13x256
+#   Layer 6: 13x13x256   -> 13x13x512,   3x3, then maxpool -> 13x13x512 (stride-1 pool)
+#   Layer 7: 13x13x512   -> 13x13x1024,  3x3
+#   Layer 8: 13x13x1024  -> 13x13x1024,  3x3
+#   Layer 9: 13x13x1024  -> 13x13x125,   1x1 (detection head)
+
+workload:
+  rank_sizes:
+    {% set BATCH_SIZE = BATCH_SIZE | default(1) %}
+    B: {{BATCH_SIZE}}
+
+    # Layer 1: Conv 3x3, 3->16, input 416x416
+    P1: 416
+    Q1: 416
+    C1: 3
+    K1: 16
+    R1: 3
+    S1: 3
+
+    # Layer 2: Conv 3x3, 16->32, input 208x208 (after maxpool)
+    P2: 208
+    Q2: 208
+    C2: 16
+    K2: 32
+    R2: 3
+    S2: 3
+
+    # Layer 3: Conv 3x3, 32->64, input 104x104
+    P3: 104
+    Q3: 104
+    C3: 32
+    K3: 64
+    R3: 3
+    S3: 3
+
+    # Layer 4: Conv 3x3, 64->128, input 52x52
+    P4: 52
+    Q4: 52
+    C4: 64
+    K4: 128
+    R4: 3
+    S4: 3
+
+    # Layer 5: Conv 3x3, 128->256, input 26x26
+    P5: 26
+    Q5: 26
+    C5: 128
+    K5: 256
+    R5: 3
+    S5: 3
+
+    # Layer 6: Conv 3x3, 256->512, input 13x13
+    P6: 13
+    Q6: 13
+    C6: 256
+    K6: 512
+    R6: 3
+    S6: 3
+
+    # Layer 7: Conv 3x3, 512->1024, input 13x13
+    P7: 13
+    Q7: 13
+    C7: 512
+    K7: 1024
+    R7: 3
+    S7: 3
+
+    # Layer 8: Conv 3x3, 1024->1024, input 13x13
+    P8: 13
+    Q8: 13
+    C8: 1024
+    K8: 1024
+    R8: 3
+    S8: 3
+
+    # Layer 9: Conv 1x1, 1024->125, input 13x13 (detection head)
+    P9: 13
+    Q9: 13
+    C9: 1024
+    K9: 125
+    R9: 1
+    S9: 1
+
+  bits_per_value: {All: 8}  # INT8 quantized for edge
+  persistent_tensors: weight - Intermediates
+
+  einsums:
+  # Layer 1: 416x416, 3->16, 3x3
+  - "Conv1_out[b, p1, q1, k1] = Conv1_in[b, p1+r1, q1+s1, c1] * Conv1_W[k1, r1, s1, c1]"
+
+  # Layer 2: 208x208, 16->32, 3x3
+  - "Conv2_out[b, p2, q2, k2] = Conv2_in[b, p2+r2, q2+s2, c2] * Conv2_W[k2, r2, s2, c2]"
+
+  # Layer 3: 104x104, 32->64, 3x3
+  - "Conv3_out[b, p3, q3, k3] = Conv3_in[b, p3+r3, q3+s3, c3] * Conv3_W[k3, r3, s3, c3]"
+
+  # Layer 4: 52x52, 64->128, 3x3
+  - "Conv4_out[b, p4, q4, k4] = Conv4_in[b, p4+r4, q4+s4, c4] * Conv4_W[k4, r4, s4, c4]"
+
+  # Layer 5: 26x26, 128->256, 3x3
+  - "Conv5_out[b, p5, q5, k5] = Conv5_in[b, p5+r5, q5+s5, c5] * Conv5_W[k5, r5, s5, c5]"
+
+  # Layer 6: 13x13, 256->512, 3x3
+  - "Conv6_out[b, p6, q6, k6] = Conv6_in[b, p6+r6, q6+s6, c6] * Conv6_W[k6, r6, s6, c6]"
+
+  # Layer 7: 13x13, 512->1024, 3x3
+  - "Conv7_out[b, p7, q7, k7] = Conv7_in[b, p7+r7, q7+s7, c7] * Conv7_W[k7, r7, s7, c7]"
+
+  # Layer 8: 13x13, 1024->1024, 3x3
+  - "Conv8_out[b, p8, q8, k8] = Conv8_in[b, p8+r8, q8+s8, c8] * Conv8_W[k8, r8, s8, c8]"
+
+  # Layer 9: 13x13, 1024->125, 1x1 (detection)
+  - "Conv9_out[b, p9, q9, k9] = Conv9_in[b, p9+r9, q9+s9, c9] * Conv9_W[k9, r9, s9, c9]"
+
+renames:
+  einsums:
+  - name: default
+    tensor_accesses:
+    - name: input
+      source: Inputs & Intermediates if len(All) == 3 else Inputs
+      expected_count: 1
+    - name: output
+      source: Outputs
+      expected_count: 1
+    - name: weight
+      source: ~(input | output)
+      expected_count: 1 if len(All) == 3 else 0
