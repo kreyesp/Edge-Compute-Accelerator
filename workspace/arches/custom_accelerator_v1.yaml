@@ -1,0 +1,38 @@
+arch:
+  nodes:
+  - !Memory
+    name: MainMemory
+    size: inf
+    area: 0          # Off-chip, not counted in on-chip area budget
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
+    - {name: write, energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
+    tensors: {keep: ~Intermediates, may_keep: All}
+  - !Memory
+    name: GlobalBuffer
+    size: 768 * 1024 * 8
+    area: 0          # TODO: replace with real SRAM area estimate
+    total_latency: max(read_latency, write_latency)
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 0.249e-12, latency: 1 / (64 * 64 * 1000e6)}
+    - {name: write, energy: 0.249e-12, latency: 1 / (64 * 64 * 1000e6)}
+    tensors: {keep: All}
+  - !Container
+    name: ProcessingElement
+    spatial:
+    - {name: reuse_input, fanout: 2, may_reuse: input, reuse: input, min_usage: 1}
+    - {name: reuse_output, fanout: 4, may_reuse: output, reuse: output, min_usage: 1}
+  - !Memory
+    name: Register
+    size: weight.bits_per_value if weight else 1
+    area: 0
+    component_class: Dummy
+    tensors: {keep: weight}
+  - !Compute
+    name: MAC
+    area: 0          # TODO: replace with real MAC area estimate
+    leak_power: 0
+    actions:
+    - {name: compute, energy: 0.084e-12, latency: 1 / (2048 * 1e9)}

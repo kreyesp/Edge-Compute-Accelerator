@@ -1,0 +1,130 @@
+# TinyYOLOv2 Full Workload for AccelForge
+# =========================================
+# All 9 convolutional layers as im2col-style einsums.
+# Each einsum has explicit renames: {input: <activation_tensor>}
+# because layers are independent (not chained), so the default
+# "Inputs & Intermediates" rename finds no Intermediates.
+#
+# INT8 quantized for edge. Maxpool/BN/ReLU omitted.
+
+workload:
+  rank_sizes:
+    {% set BATCH_SIZE = BATCH_SIZE | default(1) %}
+    B: {{BATCH_SIZE}}
+
+    # Layer 1: 416x416, 3->16, 3x3
+    P_A: 416
+    Q_A: 416
+    C_A: 3
+    K_A: 16
+    R_A: 3
+    S_A: 3
+
+    # Layer 2: 208x208, 16->32, 3x3
+    P_B: 208
+    Q_B: 208
+    C_B: 16
+    K_B: 32
+    R_B: 3
+    S_B: 3
+
+    # Layer 3: 104x104, 32->64, 3x3
+    P_C: 104
+    Q_C: 104
+    C_C: 32
+    K_C: 64
+    R_C: 3
+    S_C: 3
+
+    # Layer 4: 52x52, 64->128, 3x3
+    P_D: 52
+    Q_D: 52
+    C_D: 64
+    K_D: 128
+    R_D: 3
+    S_D: 3
+
+    # Layer 5: 26x26, 128->256, 3x3
+    P_E: 26
+    Q_E: 26
+    C_E: 128
+    K_E: 256
+    R_E: 3
+    S_E: 3
+
+    # Layer 6: 13x13, 256->512, 3x3
+    P_F: 13
+    Q_F: 13
+    C_F: 256
+    K_F: 512
+    R_F: 3
+    S_F: 3
+
+    # Layer 7: 13x13, 512->1024, 3x3
+    P_G: 13
+    Q_G: 13
+    C_G: 512
+    K_G: 1024
+    R_G: 3
+    S_G: 3
+
+    # Layer 8: 13x13, 1024->1024, 3x3
+    P_H: 13
+    Q_H: 13
+    C_H: 1024
+    K_H: 1024
+    R_H: 3
+    S_H: 3
+
+    # Layer 9: 13x13, 1024->125, 1x1
+    P_I: 13
+    Q_I: 13
+    C_I: 1024
+    K_I: 125
+    R_I: 1
+    S_I: 1
+
+  bits_per_value: {All: 8}
+  persistent_tensors: weight - Intermediates
+
+  einsums:
+  - einsum: "L1_out[b, p_a, q_a, k_a] = L1_in[b, p_a, q_a, r_a, s_a, c_a] * L1_W[k_a, r_a, s_a, c_a]"
+    renames: {input: L1_in}
+
+  - einsum: "L2_out[b, p_b, q_b, k_b] = L2_in[b, p_b, q_b, r_b, s_b, c_b] * L2_W[k_b, r_b, s_b, c_b]"
+    renames: {input: L2_in}
+
+  - einsum: "L3_out[b, p_c, q_c, k_c] = L3_in[b, p_c, q_c, r_c, s_c, c_c] * L3_W[k_c, r_c, s_c, c_c]"
+    renames: {input: L3_in}
+
+  - einsum: "L4_out[b, p_d, q_d, k_d] = L4_in[b, p_d, q_d, r_d, s_d, c_d] * L4_W[k_d, r_d, s_d, c_d]"
+    renames: {input: L4_in}
+
+  - einsum: "L5_out[b, p_e, q_e, k_e] = L5_in[b, p_e, q_e, r_e, s_e, c_e] * L5_W[k_e, r_e, s_e, c_e]"
+    renames: {input: L5_in}
+
+  - einsum: "L6_out[b, p_f, q_f, k_f] = L6_in[b, p_f, q_f, r_f, s_f, c_f] * L6_W[k_f, r_f, s_f, c_f]"
+    renames: {input: L6_in}
+
+  - einsum: "L7_out[b, p_g, q_g, k_g] = L7_in[b, p_g, q_g, r_g, s_g, c_g] * L7_W[k_g, r_g, s_g, c_g]"
+    renames: {input: L7_in}
+
+  - einsum: "L8_out[b, p_h, q_h, k_h] = L8_in[b, p_h, q_h, r_h, s_h, c_h] * L8_W[k_h, r_h, s_h, c_h]"
+    renames: {input: L8_in}
+
+  - einsum: "L9_out[b, p_i, q_i, k_i] = L9_in[b, p_i, q_i, r_i, s_i, c_i] * L9_W[k_i, r_i, s_i, c_i]"
+    renames: {input: L9_in}
+
+renames:
+  einsums:
+  - name: default
+    tensor_accesses:
+    - name: input
+      source: Inputs & Intermediates if len(All) == 3 else Inputs
+      expected_count: 1
+    - name: output
+      source: Outputs
+      expected_count: 1
+    - name: weight
+      source: ~(input | output)
+      expected_count: 1 if len(All) == 3 else 0
