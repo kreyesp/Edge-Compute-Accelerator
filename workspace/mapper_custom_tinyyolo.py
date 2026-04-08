@@ -124,33 +124,27 @@ def main():
 
     # --- Plotting ---------------------------------------------
     print('\nGenerating plots...')
-    n_to_show = 10
+    n_to_show = 5
 
-    # 1. Use the EXACT column names discovered in the debug output
+    # Relevant column names from accelforge
     energy_col = 'Total<SEP>energy'
     latency_col = 'Total<SEP>latency'
 
-    # Create a copy of the dataframe to work with safely
     df = mapping_data.copy()
 
-    # 2. Calculate the sorting metric directly (fast column-wise math)
     df['sort_metric'] = df[energy_col].astype(float) * df[latency_col].astype(float)
 
-    # 3. Sort by the metric in ascending order (lowest energy * latency)
+    # Sorting
     sorted_df = df.sort_values(by='sort_metric')
 
-    # 4. Extract the top N and drop the temporary metric column
-    top_10_df = sorted_df.head(n_to_show).drop(columns=['sort_metric'])
+    top_n_df = sorted_df.head(n_to_show).drop(columns=['sort_metric'])
 
     print(f'Total mappings explored: {len(mapping_data)}')
 
-    # 5. THE FIX FOR THE ERROR:
-    # The plotting function expects an object identical to `all_mappings`.
-    # We create a shallow copy of `all_mappings` and replace its `.data` 
-    # attribute with our newly sorted and filtered DataFrame.
     top_n = copy.copy(mappings)
-    top_n.data = top_10_df
+    top_n.data = top_n_df
 
+    # if we want to show all top n
     best_n = mappings[min_edp_filter(top_n.data)]
 
     print(f'Total mappings explored: {len(mapping_data)}')
@@ -160,28 +154,22 @@ def main():
             [top_n], ['einsum', 'component'], ['action'], ['Best EDP Mapping']
         )
         
-        # --- THE FIX: Stretch the figure horizontally ---
-        # 14 inches wide by 6 inches tall usually provides enough room for this many labels.
-        # Feel free to increase the '14' to '16' or '18' if they are still touching.
-        fig_energy.set_size_inches(14, 6) 
+        fig_energy.set_size_inches(12, 8) 
         
-        # (Optional) If you want to slightly shrink the font size of the labels as well:
+        # Altering axis label text size:
         for ax in axes_energy:
             ax.tick_params(axis='x', labelsize=8)
 
         fig_energy.suptitle('Energy Breakdown (Custom Tensix NEO Edge)')
         
-        # tight_layout will now use the new 14x6 dimensions to organize everything
         fig_energy.tight_layout() 
         fig_energy.savefig('custom_accel_energy_breakdown.png', bbox_inches='tight')
         print("Saved 'custom_accel_energy_breakdown.png'.")
 
-        # --- Do the same for the latency plot if it has similar issues ---
         fig_lat, ax_lat = plot_latency_comparison(
             [top_n], ['All Mappings']
         )
         
-        # Resize the latency figure as well
         fig_lat.set_size_inches(2, 5)
         
         fig_lat.suptitle('Latency Comparison (Custom Tensix NEO Edge)')
