@@ -14,8 +14,9 @@ from accelforge.frontend.mapper.metrics import Metrics
 from accelforge.plotting.mappings import plot_energy_breakdown, plot_latency_comparison
 
 ARCH_FILE     = 'workspace/arches/custom_accelerator_v0.yaml'
-# TODO: Update this to your actual workload file (e.g., tinyyolo, owl_vit, etc.)
+
 WORKLOAD_FILE = 'workspace/workloads/gpt3_175B_kv_cache.yaml'
+# WORKLOAD_FILE = 'workspace/workloads/tinyyolo.yaml'
 
 JINJA_DATA = {
     'BATCH_SIZE': 1,
