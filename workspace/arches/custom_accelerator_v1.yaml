@@ -9,6 +9,7 @@ arch:
     - {name: read,  energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
     - {name: write, energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
     tensors: {keep: ~Intermediates, may_keep: All}
+  #CONSIDER IMPACT OF BANKING GLOBAL BUFFER TO SEE TRADEOFFS
   - !Memory
     name: GlobalBuffer
     size: 768 * 1024 * 8
@@ -30,6 +31,7 @@ arch:
     area: 0
     component_class: Dummy
     tensors: {keep: weight}
+    #Do SPATIAL LAYOUT OF MAC, MAKE SURE POWER IS LESS THAN 100mW OR SOMETHING REASONABLE
   - !Compute
     name: MAC
     area: 0          # TODO: replace with real MAC area estimate
