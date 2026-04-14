@@ -11,7 +11,7 @@ arch:
     tensors: {keep: ~Intermediates, may_keep: All}
   - !Memory
     name: GlobalBuffer
-    size: 768 * 1024 * 8
+    size: 1024 * 1024 * 8
     area: 0          # TODO: replace with real SRAM area estimate
     total_latency: max(read_latency, write_latency)
     leak_power: 0

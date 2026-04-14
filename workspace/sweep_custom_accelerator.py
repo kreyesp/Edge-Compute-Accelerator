@@ -28,7 +28,7 @@ WORKLOAD_FILE = 'workspace/workloads/tinyyolo.yaml'
 
 FANOUT_X_VALUES = [1, 2, 4, 8]       # Input reuse dimension
 FANOUT_Y_VALUES = [1, 2, 4, 8]       # Output reuse dimension
-GLB_KB_VALUES   = [256, 512, 768]     # GlobalBuffer size in KB
+GLB_KB_VALUES   = [256, 512, 768, 1024]     # GlobalBuffer size in KB
 MAC_TPT_VALUES  = [512, 1024, 2048]   # MAC ops/clk throughput
 
 # Set to True to only sweep fanout (faster, good for initial exploration)
@@ -134,7 +134,7 @@ def main():
     # Build sweep configurations
     if FANOUT_ONLY:
         configs = [
-            (fx, fy, 768, 2048)
+            (fx, fy, 1024, 2048)
             for fx, fy in product(FANOUT_X_VALUES, FANOUT_Y_VALUES)
         ]
         print(f'FANOUT-ONLY sweep: {len(configs)} configurations')
