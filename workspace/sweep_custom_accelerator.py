@@ -3,8 +3,12 @@ Parameter Sweep: Tensix NEO Edge Accelerator + TinyYOLOv2
 
 Sweeps spatial fanout, GLB size, and MAC throughput to find
 optimal configurations under edge constraints.
+Includes per-layer energy breakdown for the best configuration.
+
+Photos saved to: photos/<workload_name>/
 """
 
+import os
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -17,29 +21,58 @@ from accelforge.frontend.mapper.metrics import Metrics
 # ---------------------------------------------------------------
 # FILE PATHS
 # ---------------------------------------------------------------
-ARCH_FILE     = 'workspace/arches/custom_accelerator_sweep.yaml'
-WORKLOAD_FILE = 'workspace/workloads/tinyyolo.yaml'
+ARCH_FILE = 'workspace/arches/custom_accelerator_sweep.yaml'
+
+WORKLOADS = {
+    '1': ('workspace/workloads/tinyyolo.yaml',     'TinyYOLOv2_200x200'),
+    '2': ('workspace/workloads/tinyyolo_400.yaml',  'TinyYOLOv2_400x400'),
+}
 
 # ---------------------------------------------------------------
 # SWEEP CONFIGURATIONS
 # ---------------------------------------------------------------
-# Each list defines values to try for that parameter.
-# Total configs = product of all list lengths.
+FANOUT_X_VALUES = [1, 2, 4, 8]
+FANOUT_Y_VALUES = [1, 2, 4, 8]
+GLB_KB_VALUES   = [256, 512, 768, 1024]
+MAC_TPT_VALUES  = [512, 1024, 2048]
 
-FANOUT_X_VALUES = [1, 2, 4, 8]       # Input reuse dimension
-FANOUT_Y_VALUES = [1, 2, 4, 8]       # Output reuse dimension
-GLB_KB_VALUES   = [256, 512, 768, 1024]     # GlobalBuffer size in KB
-MAC_TPT_VALUES  = [512, 1024, 2048]   # MAC ops/clk throughput
-
-# Set to True to only sweep fanout (faster, good for initial exploration)
 FANOUT_ONLY = True
 
 # ---------------------------------------------------------------
 # HELPERS
 # ---------------------------------------------------------------
 
+def select_workload():
+    """Prompt user to select a workload."""
+    print('\nAvailable workloads:')
+    for key, (path, desc) in WORKLOADS.items():
+        print(f'  [{key}] {desc} ({path})')
+    print(f'  [c] Custom path')
+
+    choice = input('\nSelect workload: ').strip()
+
+    if choice in WORKLOADS:
+        path, desc = WORKLOADS[choice]
+        print(f'Selected: {desc}')
+        return path, desc
+    elif choice.lower() == 'c':
+        path = input('Enter workload YAML path: ').strip()
+        desc = input('Enter folder name for photos: ').strip() or 'custom'
+        return path, desc
+    else:
+        print(f'Invalid choice "{choice}", defaulting to option 1.')
+        path, desc = WORKLOADS['1']
+        return path, desc
+
+
+def make_output_dir(workload_name):
+    """Create photos/<workload_name>/ directory, return the path."""
+    out_dir = os.path.join('photos', workload_name)
+    os.makedirs(out_dir, exist_ok=True)
+    return out_dir
+
+
 def min_edp_filter(data):
-    """Return the index of the mapping with minimum EDP."""
     best_idx = 0
     best_edp = float('inf')
     for i, result in enumerate(data):
@@ -53,8 +86,16 @@ def min_edp_filter(data):
     return best_idx
 
 
-def run_config(fanout_x, fanout_y, glb_kb, mac_tpt):
-    """Run mapper for a single configuration. Returns dict of results."""
+def get_per_layer_energy(mappings):
+    best = mappings[min_edp_filter(mappings.data)]
+    try:
+        per_einsum = best.energy(per_einsum=True)
+        return {k: float(v) for k, v in per_einsum.items()}
+    except Exception:
+        return {}
+
+
+def run_config(arch_file, workload_file, fanout_x, fanout_y, glb_kb, mac_tpt):
     config_name = f'FX{fanout_x}_FY{fanout_y}_GLB{glb_kb}_MAC{mac_tpt}'
     print(f'\n{"="*60}')
     print(f'Config: {config_name}')
@@ -64,8 +105,8 @@ def run_config(fanout_x, fanout_y, glb_kb, mac_tpt):
 
     try:
         spec = af.Spec.from_yaml(
-            ARCH_FILE,
-            WORKLOAD_FILE,
+            arch_file,
+            workload_file,
             jinja_parse_data={
                 'BATCH_SIZE': 1,
                 'FANOUT_X': fanout_x,
@@ -81,7 +122,8 @@ def run_config(fanout_x, fanout_y, glb_kb, mac_tpt):
         mapping_data = mappings.data
         n_mappings = len(mapping_data) if hasattr(mapping_data, '__len__') else 0
 
-        # Get best EDP
+        per_layer = get_per_layer_energy(mappings)
+
         try:
             edp_series = mapping_data["Total<SEP>energy"] * mapping_data["Total<SEP>latency"]
             best_edp = float(edp_series.min())
@@ -96,6 +138,9 @@ def run_config(fanout_x, fanout_y, glb_kb, mac_tpt):
 
         print(f'  -> {n_mappings} mappings, EDP={best_edp:.4e}, '
               f'E={best_energy:.4e}, L={best_latency:.4e}')
+        if per_layer:
+            for layer, e in per_layer.items():
+                print(f'     {layer}: {e:.4e}')
 
         return {
             'config': config_name,
@@ -108,6 +153,7 @@ def run_config(fanout_x, fanout_y, glb_kb, mac_tpt):
             'energy': best_energy,
             'latency': best_latency,
             'edp': best_edp,
+            'per_layer': per_layer,
         }
 
     except Exception as e:
@@ -123,6 +169,7 @@ def run_config(fanout_x, fanout_y, glb_kb, mac_tpt):
             'energy': float('inf'),
             'latency': float('inf'),
             'edp': float('inf'),
+            'per_layer': {},
         }
 
 
@@ -131,7 +178,13 @@ def run_config(fanout_x, fanout_y, glb_kb, mac_tpt):
 # ---------------------------------------------------------------
 
 def main():
-    # Build sweep configurations
+    workload_file, workload_name = select_workload()
+    out_dir = make_output_dir(workload_name)
+
+    print(f'\nWorkload: {workload_name}')
+    print(f'Arch:     {ARCH_FILE}')
+    print(f'Photos:   {out_dir}/')
+
     if FANOUT_ONLY:
         configs = [
             (fx, fy, 1024, 2048)
@@ -145,25 +198,21 @@ def main():
         ))
         print(f'Full sweep: {len(configs)} configurations')
 
-    # Run all configurations
     results = []
     for fx, fy, glb, mac in configs:
-        result = run_config(fx, fy, glb, mac)
+        result = run_config(ARCH_FILE, workload_file, fx, fy, glb, mac)
         results.append(result)
 
-    # Filter out failed runs
     valid = [r for r in results if r['edp'] < float('inf')]
-
     if not valid:
         print('\nNo valid results!')
         return
 
-    # Sort by EDP
     valid.sort(key=lambda r: r['edp'])
 
     # --- Print results table ----------------------------------
     print(f'\n{"="*80}')
-    print('RESULTS (sorted by EDP)')
+    print(f'RESULTS — {workload_name} (sorted by EDP)')
     print(f'{"="*80}')
     print(f'{"Config":<30} {"PEs":>5} {"GLB":>6} {"MAC":>6} '
           f'{"Energy":>12} {"Latency":>12} {"EDP":>12} {"Maps":>5}')
@@ -176,10 +225,9 @@ def main():
     best = valid[0]
     print(f'\nBest config: {best["config"]} with EDP={best["edp"]:.4e}')
 
-    # --- Plot 1: EDP vs Total PEs ----------------------------
+    # --- Plot 1: 4-panel sweep summary ------------------------
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
-    # EDP vs PEs
     ax = axes[0, 0]
     pes = [r['total_pes'] for r in valid]
     edps = [r['edp'] for r in valid]
@@ -189,7 +237,6 @@ def main():
     ax.set_title('EDP vs PE Count')
     ax.set_yscale('log')
 
-    # Energy vs PEs
     ax = axes[0, 1]
     energies = [r['energy'] for r in valid]
     ax.scatter(pes, energies, c='orange', s=60, alpha=0.7)
@@ -198,7 +245,6 @@ def main():
     ax.set_title('Energy vs PE Count')
     ax.set_yscale('log')
 
-    # Latency vs PEs
     ax = axes[1, 0]
     latencies = [r['latency'] for r in valid]
     ax.scatter(pes, latencies, c='green', s=60, alpha=0.7)
@@ -207,7 +253,6 @@ def main():
     ax.set_title('Latency vs PE Count')
     ax.set_yscale('log')
 
-    # EDP heatmap: Fanout_X vs Fanout_Y (FANOUT_ONLY mode)
     ax = axes[1, 1]
     if FANOUT_ONLY:
         fx_vals = sorted(set(r['fanout_x'] for r in valid))
@@ -217,9 +262,7 @@ def main():
             xi = fx_vals.index(r['fanout_x'])
             yi = fy_vals.index(r['fanout_y'])
             edp_grid[yi, xi] = r['edp']
-
-        im = ax.imshow(edp_grid, aspect='auto', origin='lower',
-                        cmap='viridis_r')
+        im = ax.imshow(edp_grid, aspect='auto', origin='lower', cmap='viridis_r')
         ax.set_xticks(range(len(fx_vals)))
         ax.set_xticklabels(fx_vals)
         ax.set_yticks(range(len(fy_vals)))
@@ -232,10 +275,89 @@ def main():
         ax.text(0.5, 0.5, 'Heatmap only in\nFANOUT_ONLY mode',
                 ha='center', va='center', transform=ax.transAxes)
 
-    fig.suptitle('Tensix NEO Edge — Parameter Sweep Results', fontsize=14)
+    fig.suptitle(f'Tensix NEO Edge — {workload_name}', fontsize=14)
     fig.tight_layout()
-    fig.savefig('sweep_results.png', bbox_inches='tight', dpi=150)
-    print("\nSaved 'sweep_results.png'")
+    path1 = os.path.join(out_dir, 'sweep_results.png')
+    fig.savefig(path1, bbox_inches='tight', dpi=150)
+    print(f"\nSaved '{path1}'")
+
+    # --- Plot 2: Per-layer energy comparison ------------------
+    configs_to_plot = []
+    if len(valid) >= 3:
+        configs_to_plot = [valid[0], valid[len(valid)//2], valid[-1]]
+        labels = ['Best EDP', 'Mid EDP', 'Worst EDP']
+    elif len(valid) >= 1:
+        configs_to_plot = [valid[0]]
+        labels = ['Best EDP']
+
+    configs_with_layers = [(c, l) for c, l in zip(configs_to_plot, labels) if c['per_layer']]
+
+    if configs_with_layers:
+        layer_names = list(configs_with_layers[0][0]['per_layer'].keys())
+
+        fig2, ax2 = plt.subplots(figsize=(12, 6))
+        x = np.arange(len(layer_names))
+        width = 0.8 / len(configs_with_layers)
+
+        for i, (conf, label) in enumerate(configs_with_layers):
+            energies = [conf['per_layer'].get(ln, 0) for ln in layer_names]
+            offset = (i - len(configs_with_layers)/2 + 0.5) * width
+            ax2.bar(x + offset, energies, width, label=f'{label} ({conf["config"]})')
+
+        ax2.set_xlabel('Layer')
+        ax2.set_ylabel('Energy')
+        ax2.set_title(f'Per-Layer Energy Comparison — {workload_name}')
+        ax2.set_xticks(x)
+        ax2.set_xticklabels(layer_names, rotation=45, ha='right')
+        ax2.legend()
+        ax2.set_yscale('log')
+        fig2.tight_layout()
+        path2 = os.path.join(out_dir, 'per_layer_comparison.png')
+        fig2.savefig(path2, bbox_inches='tight', dpi=150)
+        print(f"Saved '{path2}'")
+
+        # --- Plot 3: Best config per-layer breakdown ----------
+        best_layers = best['per_layer']
+        if best_layers:
+            fig3, ax3 = plt.subplots(figsize=(10, 6))
+            names = list(best_layers.keys())
+            values = list(best_layers.values())
+            colors = plt.cm.tab10(np.linspace(0, 1, len(names)))
+
+            bars = ax3.bar(names, values, color=colors)
+            ax3.set_xlabel('Layer')
+            ax3.set_ylabel('Energy')
+            ax3.set_title(f'Per-Layer Energy — {workload_name} — Best ({best["config"]}, {best["total_pes"]} PEs)')
+            ax3.tick_params(axis='x', rotation=45)
+
+            total = sum(values)
+            for bar, val in zip(bars, values):
+                pct = 100 * val / total if total > 0 else 0
+                if pct > 2:
+                    ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
+                             f'{pct:.1f}%', ha='center', va='bottom', fontsize=9)
+
+            fig3.tight_layout()
+            path3 = os.path.join(out_dir, 'best_per_layer.png')
+            fig3.savefig(path3, bbox_inches='tight', dpi=150)
+            print(f"Saved '{path3}'")
+    else:
+        print('No per-layer energy data available for plotting.')
+
+    # --- Summary ----------------------------------------------
+    print(f'\n--- Summary ({workload_name}) ---')
+    print(f'Photos saved to   : {out_dir}/')
+    print(f'Configs tested    : {len(valid)}')
+    print(f'Best config       : {best["config"]}')
+    print(f'Best EDP          : {best["edp"]:.4e}')
+    print(f'Best Energy       : {best["energy"]:.4e}')
+    print(f'Best Latency      : {best["latency"]:.4e}')
+    if best['per_layer']:
+        total_e = sum(best['per_layer'].values())
+        print(f'\nPer-layer energy (best config):')
+        for layer, e in sorted(best['per_layer'].items(), key=lambda x: -x[1]):
+            pct = 100 * e / total_e if total_e > 0 else 0
+            print(f'  {layer:<20} {e:.4e}  ({pct:.1f}%)')
 
 
 if __name__ == '__main__':

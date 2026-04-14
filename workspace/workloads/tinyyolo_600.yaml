@@ -1,155 +1,91 @@
-# TinyYOLOv2 Full Workload for AccelForge
-# =========================================
+# TinyYOLOv2 Workload — 600x600 Input Resolution
+# ================================================
 # All 9 convolutional layers as im2col-style einsums.
-# Each einsum has explicit renames: {input: <activation_tensor>}
-# because layers are independent (not chained), so the default
-# "Inputs & Intermediates" rename finds no Intermediates.
-#
 # INT8 quantized for edge. Maxpool/BN/ReLU omitted.
+#
+# Spatial dimensions after each maxpool (2x2 stride 2):
+#   L1: 600x600 -> pool -> 300x300
+#   L2: 300x300 -> pool -> 150x150
+#   L3: 150x150 -> pool -> 75x75
+#   L4: 75x75   -> pool -> 38x38 (floor of 37.5)
+#   L5: 38x38   -> pool -> 19x19
+#   L6: 19x19   -> pool -> 19x19 (stride-1 pool in original TinyYOLO)
+#   L7: 19x19
+#   L8: 19x19
+#   L9: 19x19
 
 workload:
   rank_sizes:
     {% set BATCH_SIZE = BATCH_SIZE | default(1) %}
     B: {{BATCH_SIZE}}
 
-    # # Layer 1: 416x416, 3->16, 3x3
-    # P_A: 416
-    # Q_A: 416
-    # C_A: 3
-    # K_A: 16
-    # R_A: 3
-    # S_A: 3
-
-    # # Layer 2: 208x208, 16->32, 3x3
-    # P_B: 208
-    # Q_B: 208
-    # C_B: 16
-    # K_B: 32
-    # R_B: 3
-    # S_B: 3
-
-    # # Layer 3: 104x104, 32->64, 3x3
-    # P_C: 104
-    # Q_C: 104
-    # C_C: 32
-    # K_C: 64
-    # R_C: 3
-    # S_C: 3
-
-    # # Layer 4: 52x52, 64->128, 3x3
-    # P_D: 52
-    # Q_D: 52
-    # C_D: 64
-    # K_D: 128
-    # R_D: 3
-    # S_D: 3
-
-    # # Layer 5: 26x26, 128->256, 3x3
-    # P_E: 26
-    # Q_E: 26
-    # C_E: 128
-    # K_E: 256
-    # R_E: 3
-    # S_E: 3
-
-    # # Layer 6: 13x13, 256->512, 3x3
-    # P_F: 13
-    # Q_F: 13
-    # C_F: 256
-    # K_F: 512
-    # R_F: 3
-    # S_F: 3
-
-    # # Layer 7: 13x13, 512->1024, 3x3
-    # P_G: 13
-    # Q_G: 13
-    # C_G: 512
-    # K_G: 1024
-    # R_G: 3
-    # S_G: 3
-
-    # # Layer 8: 13x13, 1024->1024, 3x3
-    # P_H: 13
-    # Q_H: 13
-    # C_H: 1024
-    # K_H: 1024
-    # R_H: 3
-    # S_H: 3
-
-    # # Layer 9: 13x13, 1024->125, 1x1
-    # P_I: 13
-    # Q_I: 13
-    # C_I: 1024
-    # K_I: 125
-    # R_I: 1
-    # S_I: 1
-
-    # Layer 1: 200x200, 3->16, 3x3
-    P_A: 200
-    Q_A: 200
+    # Layer 1: 600x600, 3->16, 3x3
+    P_A: 600
+    Q_A: 600
     C_A: 3
     K_A: 16
     R_A: 3
     S_A: 3
 
-    # Layer 2: 100x100, 16->32, 3x3
-    P_B: 100
-    Q_B: 100
+    # Layer 2: 300x300, 16->32, 3x3
+    P_B: 300
+    Q_B: 300
     C_B: 16
     K_B: 32
     R_B: 3
     S_B: 3
 
-    # Layer 3: 50x50, 32->64, 3x3
-    P_C: 50
-    Q_C: 50
+    # Layer 3: 150x150, 32->64, 3x3
+    P_C: 150
+    Q_C: 150
     C_C: 32
     K_C: 64
     R_C: 3
     S_C: 3
 
-    # Layer 4: 25x25, 64->128, 3x3
-    P_D: 25
-    Q_D: 25
+    # Layer 4: 75x75, 64->128, 3x3
+    P_D: 75
+    Q_D: 75
     C_D: 64
     K_D: 128
     R_D: 3
     S_D: 3
 
-    # Layer 5: 13x13 (rounded up from 12.5)
-    P_E: 13
-    Q_E: 13
+    # Layer 5: 38x38, 128->256, 3x3
+    P_E: 38
+    Q_E: 38
     C_E: 128
     K_E: 256
     R_E: 3
     S_E: 3
-    # Keep C, K, R, S values the same...
 
-    # Layers 6 through 9: 6x6 (rounded down from 6.5)
-    P_F: 6
-    Q_F: 6
+    # Layer 6: 19x19, 256->512, 3x3 (stride-1 pool)
+    P_F: 19
+    Q_F: 19
     C_F: 256
     K_F: 512
     R_F: 3
     S_F: 3
 
-
-    P_G: 6
-    Q_G: 6
+    # Layer 7: 19x19, 512->1024, 3x3
+    P_G: 19
+    Q_G: 19
     C_G: 512
     K_G: 1024
     R_G: 3
     S_G: 3
 
-    P_H: 6
-    Q_H: 6
+    # Layer 8: 19x19, 1024->1024, 3x3
+    P_H: 19
+    Q_H: 19
     C_H: 1024
     K_H: 1024
     R_H: 3
     S_H: 3
 
-    P_I: 6
-    Q_I: 6
+    # Layer 9: 19x19, 1024->125, 1x1
+    P_I: 19
+    Q_I: 19
     C_I: 1024
     K_I: 125
     R_I: 1
