@@ -15,11 +15,18 @@ from accelforge.plotting.mappings import plot_energy_breakdown, plot_latency_com
 # ---------------------------------------------------------------
 # FILE PATHS
 # ---------------------------------------------------------------
-ARCH_FILE     = 'workspace/arches/custom_accelerator_v1.yaml'
+ARCH_FILE     = 'workspace/arches/custom_accelerator_sweep_v2.yaml'
 WORKLOAD_FILE = 'workspace/workloads/tinyyolo.yaml'
+
+FIXED_MAC_TPT = 2048
 
 JINJA_DATA = {
     'BATCH_SIZE': 1,
+    'FANOUT_X': 2,
+    'FANOUT_Y': 4,
+    'GLB_KB': 512,
+    'LB_KB': 8,
+    'MAC_TPT': FIXED_MAC_TPT,
 }
 
 
@@ -124,7 +131,7 @@ def main():
 
     # --- Plotting ---------------------------------------------
     print('\nGenerating plots...')
-    n_to_show = 5
+    n_to_show = 1
 
     # Relevant column names from accelforge
     energy_col = 'Total<SEP>energy'
