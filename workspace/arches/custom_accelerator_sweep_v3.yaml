@@ -1,0 +1,59 @@
+# Tensix NEO Edge Accelerator - v3: Fixed 1MB SRAM budget
+# GLB + (FANOUT_X * FANOUT_Y * LB_KB) must equal ~1024 KB
+# Use jinja_parse_data to set FANOUT_X, FANOUT_Y, GLB_KB, LB_KB, MAC_TPT
+
+arch:
+  nodes:
+  - !Memory
+    name: MainMemory
+    size: inf
+    area: 0
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
+    - {name: write, energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
+    tensors: {keep: ~Intermediates, may_keep: All}
+
+  - !Memory
+    name: GlobalBuffer
+    size: {{GLB_KB}} * 1024 * 8
+    area: 0
+    total_latency: max(read_latency, write_latency)
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 0.249e-12, latency: 1 / (64 * 64 * 1000e6)}
+    - {name: write, energy: 0.249e-12, latency: 1 / (64 * 64 * 1000e6)}
+    tensors: {keep: All}
+
+  - !Container
+    name: ProcessingElement
+    spatial:
+    - {name: reuse_input, fanout: {{FANOUT_X}}, may_reuse: input, reuse: input, min_usage: 1}
+    - {name: reuse_output, fanout: {{FANOUT_Y}}, may_reuse: output, reuse: output, min_usage: 1}
+
+  # LocalBuffer: Per-PE private scratchpad.
+  # Size is parameterized to explore GLB vs LocalBuffer allocation
+  # under a fixed 1MB total SRAM budget.
+  - !Memory
+    name: LocalBuffer
+    size: {{LB_KB}} * 1024 * 8
+    area: 0
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 0.05e-12, latency: 1 / (16 * 64 * 1000e6)}
+    - {name: write, energy: 0.05e-12, latency: 1 / (16 * 64 * 1000e6)}
+    tensors: {keep: All}
+
+  - !Memory
+    name: Register
+    size: weight.bits_per_value if weight else 1
+    area: 0
+    component_class: Dummy
+    tensors: {keep: weight}
+
+  - !Compute
+    name: MAC
+    area: 0
+    leak_power: 0
+    actions:
+    - {name: compute, energy: 0.084e-12, latency: 1 / ({{MAC_TPT}} * 1e9)}

@@ -1,0 +1,62 @@
+# Tensix NEO Edge Accelerator - Parameterized for sweeps
+# Use jinja_parse_data to set FANOUT_X, FANOUT_Y, GLB_KB, MAC_TPT
+
+arch:
+  nodes:
+  - !Memory
+    name: MainMemory
+    size: inf
+    area: 0
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
+    - {name: write, energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
+    tensors: {keep: ~Intermediates, may_keep: All}
+
+  - !Memory
+    name: GlobalBuffer
+    size: {{GLB_KB}} * 1024 * 8
+    area: 0
+    total_latency: max(read_latency, write_latency)
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 0.249e-12, latency: 1 / (64 * 64 * 1000e6)}
+    - {name: write, energy: 0.249e-12, latency: 1 / (64 * 64 * 1000e6)}
+    tensors: {keep: All}
+
+  - !Container
+    name: ProcessingElement
+    spatial:
+    - {name: reuse_input, fanout: {{FANOUT_X}}, may_reuse: input, reuse: input, min_usage: 1}
+    - {name: reuse_output, fanout: {{FANOUT_Y}}, may_reuse: output, reuse: output, min_usage: 1}
+
+  # LocalBuffer: Per-PE private scratchpad sitting between the shared GLB
+  # and the register file. Each PE gets its own 16KB buffer. Because it is
+  # below the spatial split, data stored here is private to one PE.
+  # Goal: reduce expensive GLB reads by keeping each PE's working tile
+  # (activation slices, partial sums) in a smaller, cheaper local memory.
+  # GLB read costs 0.249 pJ; LocalBuffer read costs 0.05 pJ — a 5x saving
+  # for data that is reused within a single PE's computation.
+  - !Memory
+    name: LocalBuffer
+    size: 16 * 1024 * 8  # 16KB per PE in bits
+    area: 0
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 0.05e-12, latency: 1 / (16 * 64 * 1000e6)}
+    - {name: write, energy: 0.05e-12, latency: 1 / (16 * 64 * 1000e6)}
+    tensors: {keep: All}
+
+  - !Memory
+    name: Register
+    size: weight.bits_per_value if weight else 1
+    area: 0
+    component_class: Dummy
+    tensors: {keep: weight}
+
+  - !Compute
+    name: MAC
+    area: 0
+    leak_power: 0
+    actions:
+    - {name: compute, energy: 0.084e-12, latency: 1 / ({{MAC_TPT}} * 1e9)}

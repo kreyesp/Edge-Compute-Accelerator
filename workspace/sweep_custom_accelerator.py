@@ -5,7 +5,8 @@ Sweeps spatial fanout, GLB size, and MAC throughput to find
 optimal configurations under edge constraints.
 Includes per-layer energy breakdown for the best configuration.
 
-Photos saved to: photos/<workload_name>/
+Prompts for both architecture and workload selection.
+Photos saved to: photos/<arch_name>_<workload_name>/
 """
 
 import os
@@ -19,13 +20,17 @@ import accelforge as af
 from accelforge.frontend.mapper.metrics import Metrics
 
 # ---------------------------------------------------------------
-# FILE PATHS
+# AVAILABLE ARCHITECTURES AND WORKLOADS
 # ---------------------------------------------------------------
-ARCH_FILE = 'workspace/arches/custom_accelerator_sweep.yaml'
+ARCHITECTURES = {
+    '1': ('workspace/arches/custom_accelerator_sweep.yaml',    'v1_single_GLB'),
+    '2': ('workspace/arches/custom_accelerator_sweep_v2.yaml', 'v2_with_LocalBuffer'),
+}
 
 WORKLOADS = {
-    '1': ('workspace/workloads/tinyyolo.yaml',     'TinyYOLOv2_200x200'),
-    '2': ('workspace/workloads/tinyyolo_400.yaml',  'TinyYOLOv2_400x400'),
+    '1': ('workspace/workloads/tinyyolo.yaml',      'TinyYOLOv2_200x200'),
+    '2': ('workspace/workloads/tinyyolo_400.yaml',   'TinyYOLOv2_400x400'),
+    '3': ('workspace/workloads/tinyyolo_600.yaml',   'TinyYOLOv2_600x600'),
 }
 
 # ---------------------------------------------------------------
@@ -42,6 +47,29 @@ FANOUT_ONLY = True
 # HELPERS
 # ---------------------------------------------------------------
 
+def select_architecture():
+    """Prompt user to select an architecture."""
+    print('\nAvailable architectures:')
+    for key, (path, desc) in ARCHITECTURES.items():
+        print(f'  [{key}] {desc} ({path})')
+    print(f'  [c] Custom path')
+
+    choice = input('\nSelect architecture: ').strip()
+
+    if choice in ARCHITECTURES:
+        path, desc = ARCHITECTURES[choice]
+        print(f'Selected: {desc}')
+        return path, desc
+    elif choice.lower() == 'c':
+        path = input('Enter architecture YAML path: ').strip()
+        desc = input('Enter short name for folder: ').strip() or 'custom_arch'
+        return path, desc
+    else:
+        print(f'Invalid choice "{choice}", defaulting to option 1.')
+        path, desc = ARCHITECTURES['1']
+        return path, desc
+
+
 def select_workload():
     """Prompt user to select a workload."""
     print('\nAvailable workloads:')
@@ -57,7 +85,7 @@ def select_workload():
         return path, desc
     elif choice.lower() == 'c':
         path = input('Enter workload YAML path: ').strip()
-        desc = input('Enter folder name for photos: ').strip() or 'custom'
+        desc = input('Enter short name for folder: ').strip() or 'custom_workload'
         return path, desc
     else:
         print(f'Invalid choice "{choice}", defaulting to option 1.')
@@ -65,9 +93,9 @@ def select_workload():
         return path, desc
 
 
-def make_output_dir(workload_name):
-    """Create photos/<workload_name>/ directory, return the path."""
-    out_dir = os.path.join('photos', workload_name)
+def make_output_dir(arch_name, workload_name):
+    """Create photos/<arch_name>_<workload_name>/ directory."""
+    out_dir = os.path.join('photos', f'{arch_name}_{workload_name}')
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
 
@@ -178,12 +206,16 @@ def run_config(arch_file, workload_file, fanout_x, fanout_y, glb_kb, mac_tpt):
 # ---------------------------------------------------------------
 
 def main():
+    arch_file, arch_name = select_architecture()
     workload_file, workload_name = select_workload()
-    out_dir = make_output_dir(workload_name)
+    run_label = f'{arch_name} + {workload_name}'
+    out_dir = make_output_dir(arch_name, workload_name)
 
-    print(f'\nWorkload: {workload_name}')
-    print(f'Arch:     {ARCH_FILE}')
-    print(f'Photos:   {out_dir}/')
+    print(f'\n{"="*60}')
+    print(f'Architecture: {arch_name} ({arch_file})')
+    print(f'Workload:     {workload_name} ({workload_file})')
+    print(f'Photos:       {out_dir}/')
+    print(f'{"="*60}')
 
     if FANOUT_ONLY:
         configs = [
@@ -200,7 +232,7 @@ def main():
 
     results = []
     for fx, fy, glb, mac in configs:
-        result = run_config(ARCH_FILE, workload_file, fx, fy, glb, mac)
+        result = run_config(arch_file, workload_file, fx, fy, glb, mac)
         results.append(result)
 
     valid = [r for r in results if r['edp'] < float('inf')]
@@ -212,7 +244,7 @@ def main():
 
     # --- Print results table ----------------------------------
     print(f'\n{"="*80}')
-    print(f'RESULTS — {workload_name} (sorted by EDP)')
+    print(f'RESULTS — {run_label} (sorted by EDP)')
     print(f'{"="*80}')
     print(f'{"Config":<30} {"PEs":>5} {"GLB":>6} {"MAC":>6} '
           f'{"Energy":>12} {"Latency":>12} {"EDP":>12} {"Maps":>5}')
@@ -275,7 +307,7 @@ def main():
         ax.text(0.5, 0.5, 'Heatmap only in\nFANOUT_ONLY mode',
                 ha='center', va='center', transform=ax.transAxes)
 
-    fig.suptitle(f'Tensix NEO Edge — {workload_name}', fontsize=14)
+    fig.suptitle(f'{run_label}', fontsize=14)
     fig.tight_layout()
     path1 = os.path.join(out_dir, 'sweep_results.png')
     fig.savefig(path1, bbox_inches='tight', dpi=150)
@@ -306,7 +338,7 @@ def main():
 
         ax2.set_xlabel('Layer')
         ax2.set_ylabel('Energy')
-        ax2.set_title(f'Per-Layer Energy Comparison — {workload_name}')
+        ax2.set_title(f'Per-Layer Energy Comparison — {run_label}')
         ax2.set_xticks(x)
         ax2.set_xticklabels(layer_names, rotation=45, ha='right')
         ax2.legend()
@@ -327,7 +359,7 @@ def main():
             bars = ax3.bar(names, values, color=colors)
             ax3.set_xlabel('Layer')
             ax3.set_ylabel('Energy')
-            ax3.set_title(f'Per-Layer Energy — {workload_name} — Best ({best["config"]}, {best["total_pes"]} PEs)')
+            ax3.set_title(f'Per-Layer Energy — {run_label}\nBest ({best["config"]}, {best["total_pes"]} PEs)')
             ax3.tick_params(axis='x', rotation=45)
 
             total = sum(values)
@@ -345,7 +377,9 @@ def main():
         print('No per-layer energy data available for plotting.')
 
     # --- Summary ----------------------------------------------
-    print(f'\n--- Summary ({workload_name}) ---')
+    print(f'\n--- Summary ---')
+    print(f'Architecture      : {arch_name}')
+    print(f'Workload          : {workload_name}')
     print(f'Photos saved to   : {out_dir}/')
     print(f'Configs tested    : {len(valid)}')
     print(f'Best config       : {best["config"]}')
