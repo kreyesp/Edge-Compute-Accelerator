@@ -9,8 +9,8 @@ arch:
     area: 0
     leak_power: 0
     actions:
-    - {name: read,  energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
-    - {name: write, energy: 7.03e-12, latency: 1 / (8 * 19.2e9)}
+    - {name: read,  energy: 8e-12, latency: 1 / (8 * 19.2e9)}
+    - {name: write, energy: 8e-12, latency: 1 / (8 * 19.2e9)}
     tensors: {keep: ~Intermediates, may_keep: All}
 
   - !Memory
@@ -20,8 +20,8 @@ arch:
     total_latency: max(read_latency, write_latency)
     leak_power: 0
     actions:
-    - {name: read,  energy: 0.249e-12, latency: 1 / (64 * 64 * 1000e6)}
-    - {name: write, energy: 0.249e-12, latency: 1 / (64 * 64 * 1000e6)}
+    - {name: read,  energy: 1.88e-12, latency: 1 / (64 * 64 * 1000e6)}
+    - {name: write, energy: 2.36e-12, latency: 1 / (64 * 64 * 1000e6)}
     tensors: {keep: All}
 
   - !Container
@@ -43,8 +43,8 @@ arch:
     area: 0
     leak_power: 0
     actions:
-    - {name: read,  energy: 0.05e-12, latency: 1 / (16 * 64 * 1000e6)}
-    - {name: write, energy: 0.05e-12, latency: 1 / (16 * 64 * 1000e6)}
+    - {name: read,  energy: 2.49e-13, latency: 1 / (16 * 64 * 1000e6)}
+    - {name: write, energy: 2.93e-13, latency: 1 / (16 * 64 * 1000e6)}
     tensors: {keep: All}
 
   - !Memory
