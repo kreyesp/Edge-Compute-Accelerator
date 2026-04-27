@@ -11,6 +11,8 @@ workload:
   rank_sizes:
     {% set BATCH_SIZE = BATCH_SIZE | default(1) %}
     B: {{BATCH_SIZE}}
+    r_pool: 2
+    s_pool: 2
 
     # Layer 1: 416x416, 3->16, 3x3
     P_A: 416
@@ -160,32 +162,69 @@ workload:
 
   einsums:
   - einsum: "L1_out[b, p_a, q_a, k_a] = L1_in[b, p_a, q_a, r_a, s_a, c_a] * L1_W[k_a, r_a, s_a, c_a]"
-    renames: {input: L1_in}
+    # renames: {input: L1_in}
+  - einsum: "pool1_out[b, p_b, q_b, c_b] = max(L1_out[b, p_b * 2 + r_pool, q_b * 2 + s_pool, c_b])"
 
-  - einsum: "L2_out[b, p_b, q_b, k_b] = L2_in[b, p_b, q_b, r_b, s_b, c_b] * L2_W[k_b, r_b, s_b, c_b]"
-    renames: {input: L2_in}
+  # - einsum: "L2_out[b, p_b, q_b, k_b] = L2_in[b, p_b, q_b, r_b, s_b, c_b] * L2_W[k_b, r_b, s_b, c_b]"
+    # renames: {input: L2_in}
+  - einsum: "L2_out[b, p_b, q_b, k_b] = pool1_out[b, p_b, q_b, r_b, s_b, c_b] * L2_W[k_b, r_b, s_b, c_b]"
 
-  - einsum: "L3_out[b, p_c, q_c, k_c] = L3_in[b, p_c, q_c, r_c, s_c, c_c] * L3_W[k_c, r_c, s_c, c_c]"
-    renames: {input: L3_in}
+  - einsum: "pool2_out[b, p_c, q_c, c_c] = max(L2_out[b, p_c * 2 + r_pool, q_c * 2 + s_pool, c_c])"
 
-  - einsum: "L4_out[b, p_d, q_d, k_d] = L4_in[b, p_d, q_d, r_d, s_d, c_d] * L4_W[k_d, r_d, s_d, c_d]"
-    renames: {input: L4_in}
+  # Conv3 (Takes pool2_out as input)
+  - einsum: "L3_out[b, p_c, q_c, k_c] = pool2_out[b, p_c, q_c, r_c, s_c, c_c] * L3_W[k_c, r_c, s_c, c_c]"
+  
+  # MaxPool3 (Reduces P_C/Q_C to P_D/Q_D)
+  - einsum: "pool3_out[b, p_d, q_d, c_d] = max(L3_out[b, p_d * 2 + r_pool, q_d * 2 + s_pool, c_d])"
 
-  - einsum: "L5_out[b, p_e, q_e, k_e] = L5_in[b, p_e, q_e, r_e, s_e, c_e] * L5_W[k_e, r_e, s_e, c_e]"
-    renames: {input: L5_in}
+  # Conv4 (Takes pool3_out as input)
+  - einsum: "L4_out[b, p_d, q_d, k_d] = pool3_out[b, p_d, q_d, r_d, s_d, c_d] * L4_W[k_d, r_d, s_d, c_d]"
 
-  - einsum: "L6_out[b, p_f, q_f, k_f] = L6_in[b, p_f, q_f, r_f, s_f, c_f] * L6_W[k_f, r_f, s_f, c_f]"
-    renames: {input: L6_in}
+  # MaxPool4 (Reduces P_D/Q_D to P_E/Q_E)
+  - einsum: "pool4_out[b, p_e, q_e, c_e] = max(L4_out[b, p_e * 2 + r_pool, q_e * 2 + s_pool, c_e])"
 
-  - einsum: "L7_out[b, p_g, q_g, k_g] = L7_in[b, p_g, q_g, r_g, s_g, c_g] * L7_W[k_g, r_g, s_g, c_g]"
-    renames: {input: L7_in}
+  # Conv5 (Takes pool4_out as input)
+  - einsum: "L5_out[b, p_e, q_e, k_e] = pool4_out[b, p_e, q_e, r_e, s_e, c_e] * L5_W[k_e, r_e, s_e, c_e]"
 
-  - einsum: "L8_out[b, p_h, q_h, k_h] = L8_in[b, p_h, q_h, r_h, s_h, c_h] * L8_W[k_h, r_h, s_h, c_h]"
-    renames: {input: L8_in}
+  # MaxPool5 (Reduces P_E/Q_E to P_F/Q_F)
+  - einsum: "pool5_out[b, p_f, q_f, c_f] = max(L5_out[b, p_f * 2 + r_pool, q_f * 2 + s_pool, c_f])"
 
-  - einsum: "L9_out[b, p_i, q_i, k_i] = L9_in[b, p_i, q_i, r_i, s_i, c_i] * L9_W[k_i, r_i, s_i, c_i]"
-    renames: {input: L9_in}
+  # Conv6 (Takes pool5_out as input)
+  - einsum: "L6_out[b, p_f, q_f, k_f] = pool5_out[b, p_f, q_f, r_f, s_f, c_f] * L6_W[k_f, r_f, s_f, c_f]"
 
+  # (Layers 7, 8, and 9 do not have intermediate pooling layers in TinyYOLOv2, so they pass directly)
+  
+  # Conv7
+  - einsum: "L7_out[b, p_g, q_g, k_g] = L6_out[b, p_g, q_g, r_g, s_g, c_g] * L7_W[k_g, r_g, s_g, c_g]"
+
+  # Conv8
+  - einsum: "L8_out[b, p_h, q_h, k_h] = L7_out[b, p_h, q_h, r_h, s_h, c_h] * L8_W[k_h, r_h, s_h, c_h]"
+
+  # Conv9
+  - einsum: "L9_out[b, p_i, q_i, k_i] = L8_out[b, p_i, q_i, r_i, s_i, c_i] * L9_W[k_i, r_i, s_i, c_i]"
+
+  # - einsum: "L3_out[b, p_c, q_c, k_c] = L3_in[b, p_c, q_c, r_c, s_c, c_c] * L3_W[k_c, r_c, s_c, c_c]"
+  #   renames: {input: L3_in}
+
+  # - einsum: "L4_out[b, p_d, q_d, k_d] = L4_in[b, p_d, q_d, r_d, s_d, c_d] * L4_W[k_d, r_d, s_d, c_d]"
+  #   renames: {input: L4_in}
+
+  # - einsum: "L5_out[b, p_e, q_e, k_e] = L5_in[b, p_e, q_e, r_e, s_e, c_e] * L5_W[k_e, r_e, s_e, c_e]"
+  #   renames: {input: L5_in}
+
+  # - einsum: "L6_out[b, p_f, q_f, k_f] = L6_in[b, p_f, q_f, r_f, s_f, c_f] * L6_W[k_f, r_f, s_f, c_f]"
+  #   renames: {input: L6_in}
+
+  # - einsum: "L7_out[b, p_g, q_g, k_g] = L7_in[b, p_g, q_g, r_g, s_g, c_g] * L7_W[k_g, r_g, s_g, c_g]"
+  #   renames: {input: L7_in}
+
+  # - einsum: "L8_out[b, p_h, q_h, k_h] = L8_in[b, p_h, q_h, r_h, s_h, c_h] * L8_W[k_h, r_h, s_h, c_h]"
+  #   renames: {input: L8_in}
+
+  # - einsum: "L9_out[b, p_i, q_i, k_i] = L9_in[b, p_i, q_i, r_i, s_i, c_i] * L9_W[k_i, r_i, s_i, c_i]"
+  #   renames: {input: L9_in}
+
+  
 renames:
   einsums:
   - name: default
