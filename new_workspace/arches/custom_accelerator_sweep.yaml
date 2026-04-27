@@ -1,6 +1,3 @@
-# Tensix NEO Edge Accelerator - Parameterized for sweeps
-# Use jinja_parse_data to set FANOUT_X, FANOUT_Y, GLB_KB, MAC_TPT
-
 arch:
   nodes:
   - !Memory
@@ -9,8 +6,8 @@ arch:
     area: 0
     leak_power: 0
     actions:
-    - {name: read,  energy: 8e-12, latency: 1 / (8 * 19.2e9)}
-    - {name: write, energy: 8e-12, latency: 1 / (8 * 19.2e9)}
+    - {name: read,  energy: 8e-12,   latency: 1 / (8 * 19.2e9)}
+    - {name: write, energy: 8e-12,   latency: 1 / (8 * 19.2e9)}
     tensors: {keep: ~Intermediates, may_keep: All}
 
   - !Memory
@@ -20,14 +17,14 @@ arch:
     total_latency: max(read_latency, write_latency)
     leak_power: 0
     actions:
-    - {name: read,  energy: 1.88e-12, latency: 1 / (64 * 64 * 1000e6)}
-    - {name: write, energy: 2.36e-12, latency: 1 / (64 * 64 * 1000e6)}
+    - {name: read,  energy: 1.88e-12, latency: 1 / (64 * {{FREQ_GHZ}} * 1e9)}
+    - {name: write, energy: 2.36e-12, latency: 1 / (64 * {{FREQ_GHZ}} * 1e9)}
     tensors: {keep: All}
 
   - !Container
     name: ProcessingElement
     spatial:
-    - {name: reuse_input, fanout: {{FANOUT_X}}, may_reuse: input, reuse: input, min_usage: 1}
+    - {name: reuse_input,  fanout: {{FANOUT_X}}, may_reuse: input,  reuse: input,  min_usage: 1}
     - {name: reuse_output, fanout: {{FANOUT_Y}}, may_reuse: output, reuse: output, min_usage: 1}
 
   - !Memory
@@ -42,4 +39,4 @@ arch:
     area: 0
     leak_power: 0
     actions:
-    - {name: compute, energy: 0.084e-12, latency: 1 / ({{MAC_TPT}} * 1e9)}
+    - {name: compute, energy: 0.084e-12, latency: 1 / ({{FREQ_GHZ}} * 1e9)}
