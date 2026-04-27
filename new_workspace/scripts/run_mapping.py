@@ -1,163 +1,104 @@
 """
 run_mapping.py
 ==============
-Renders Jinja2-templated workload + architecture YAMLs and invokes
-the Timeloop mapper for the TinyYOLOv2 workload on the custom
-edge accelerator.
+Sweeps design points for the TinyYOLOv2 workload on the custom edge
+accelerator using the accelforge Python API. No intermediate files
+are written to disk. Results are ranked by energy and printed.
 
 Usage:
     python scripts/run_mapping.py [options]
 
 Examples:
-    # Default design point
     python scripts/run_mapping.py
-
-    # Custom GLB and array size
-    python scripts/run_mapping.py --glb-kb 512 --fanout-x 16 --fanout-y 16
-
-    # Sweep multiple GLB sizes
-    python scripts/run_mapping.py --sweep-glb 64 128 256 512
-
-    # Dry-run: just render the YAMLs, don't invoke Timeloop
-    python scripts/run_mapping.py --dry-run
+    python scripts/run_mapping.py --sweep-glb 64 128 256 512 --sweep-fanout 8 16 32
 """
 
 import argparse
 import itertools
-import os
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
-import yaml
-from jinja2 import BaseLoader, Environment
+import accelforge as af
 
 # ---------------------------------------------------------------------------
-# Paths (all relative to new_workspace/, which is two levels up from scripts/)
+# Paths
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR   = Path(__file__).resolve().parent
 WORKSPACE    = SCRIPT_DIR.parent
-WORKLOAD_SRC = WORKSPACE / "workloads" / "tiny_yolo_test.yaml"
-ARCH_SRC     = WORKSPACE / "arches"    / "custom_accelerator_sweep.yaml"
-OUTPUT_ROOT  = WORKSPACE / "outputs"
+WORKLOAD_SRC = str(WORKSPACE / "workloads" / "tiny_yolo_test.yaml")
+ARCH_SRC     = str(WORKSPACE / "arches"    / "custom_accelerator_sweep.yaml")
 
 # ---------------------------------------------------------------------------
 # Default design-point parameters
 # ---------------------------------------------------------------------------
 
 DEFAULTS = dict(
-    GLB_KB   = 256,       # on-chip SRAM size in KB
-    FANOUT_X = 16,        # PE array width  (input reuse dimension)
-    FANOUT_Y = 16,        # PE array height (output reuse dimension)
-    FREQ_GHZ = 1.0,       # clock frequency in GHz (1 MAC/cycle)
-    MAC_TPT  = 1.0,       # kept for back-compat with un-migrated arch YAMLs
-    BATCH_SIZE = 1,       # inference batch size
+    GLB_KB     = 1024,
+    FANOUT_X   = 64,
+    FANOUT_Y   = 64,
+    FREQ_GHZ   = 1.0,
+    BATCH_SIZE = 1,
 )
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def render_yaml(src: Path, params: dict) -> str:
+def build_param_grid(args: argparse.Namespace) -> list[dict]:
+    glb_values    = args.sweep_glb    or [args.glb_kb]
+    fanout_values = args.sweep_fanout or [args.fanout_x]
+    freq_values   = args.sweep_freq   or [args.freq_ghz]
+
+    grid = []
+    for glb, fanout, freq in itertools.product(glb_values, fanout_values, freq_values):
+        grid.append({
+            **DEFAULTS,
+            "GLB_KB":     glb,
+            "FANOUT_X":   fanout,
+            "FANOUT_Y":   fanout,
+            "FREQ_GHZ":   freq,
+            "MAC_TPT":    freq,
+            "BATCH_SIZE": args.batch_size,
+        })
+    return grid
+
+
+def extract_energy(mappings) -> float | None:
     """
-    Load a YAML file as a Jinja2 template, render it with *params*, then
-    return the rendered string.  Both {{ VAR }} substitution and
-    {% set ... %} / {% if ... %} directives are supported.
+    Pull total energy from the mappings object returned by
+    spec.map_workload_to_arch(). Tries common accelforge attribute
+    patterns — adjust if your version exposes a different field name.
     """
-    template_str = src.read_text()
-    env = Environment(loader=BaseLoader(), variable_start_string="{{",
-                      variable_end_string="}}")
-    rendered = env.from_string(template_str).render(**params)
-    return rendered
+    # Try direct attribute access (most common in recent accelforge versions)
+    for attr in ("energy", "total_energy", "best_energy"):
+        if hasattr(mappings, attr):
+            val = getattr(mappings, attr)
+            if val is not None:
+                return float(val)
+
+    # Try treating mappings as iterable of mapping objects and take the best
+    try:
+        energies = [m.energy for m in mappings if hasattr(m, "energy")]
+        if energies:
+            return min(energies)
+    except TypeError:
+        pass
+
+    # Try dict-like access
+    try:
+        return float(mappings["energy"])
+    except (KeyError, TypeError):
+        pass
+
+    return None
 
 
-def make_run_dir(params: dict) -> Path:
-    """Return (and create) a unique output directory for this design point."""
-    tag = (
-        f"glb{params['GLB_KB']}kb"
-        f"_x{params['FANOUT_X']}"
-        f"_y{params['FANOUT_Y']}"
-        f"_f{params['FREQ_GHZ']}ghz"
-        f"_b{params['BATCH_SIZE']}"
-    )
-    run_dir = OUTPUT_ROOT / tag
-    run_dir.mkdir(parents=True, exist_ok=True)
-    return run_dir
+def label(params: dict) -> str:
+    return (f"GLB={params['GLB_KB']}KB  "
+            f"PEs={params['FANOUT_X']}x{params['FANOUT_Y']}  "
+            f"f={params['FREQ_GHZ']}GHz")
 
-
-def write_rendered_yamls(run_dir: Path, params: dict) -> tuple[Path, Path]:
-    """Render both templates and write them into run_dir."""
-    workload_out = run_dir / "workload.yaml"
-    arch_out     = run_dir / "arch.yaml"
-
-    workload_out.write_text(render_yaml(WORKLOAD_SRC, params))
-    arch_out.write_text(render_yaml(ARCH_SRC,     params))
-
-    return workload_out, arch_out
-
-
-def run_timeloop(run_dir: Path, workload_yaml: Path, arch_yaml: Path,
-                 extra_args: list[str]) -> int:
-    """
-    Invoke `timeloop-mapper` (or `timeloop-model` if --model flag is set).
-    Returns the process return-code.
-    """
-    cmd = [
-        "timeloop-mapper",
-        str(arch_yaml),
-        str(workload_yaml),
-        *extra_args,
-    ]
-    print(f"\n[run_mapping] Running: {' '.join(cmd)}")
-    print(f"[run_mapping] CWD:     {run_dir}\n")
-
-    result = subprocess.run(cmd, cwd=run_dir)
-    return result.returncode
-
-
-def parse_stats(run_dir: Path) -> dict | None:
-    """
-    Try to read the Timeloop stats YAML that the mapper writes on success.
-    Returns a dict of key metrics, or None if the file isn't found.
-    """
-    stats_file = run_dir / "timeloop-mapper.stats.yaml"
-    if not stats_file.exists():
-        # Older Timeloop versions write .txt, not .yaml
-        txt = run_dir / "timeloop-mapper.stats.txt"
-        if txt.exists():
-            print(f"[run_mapping] Stats written to: {txt}")
-        return None
-
-    with stats_file.open() as f:
-        data = yaml.safe_load(f)
-
-    # Pull the top-level summary fields (structure varies by Timeloop version)
-    summary = {}
-    for key in ("energy", "cycles", "utilization", "energy_per_mac"):
-        if key in data:
-            summary[key] = data[key]
-
-    return summary or None
-
-
-def print_summary(params: dict, stats: dict | None) -> None:
-    print("\n" + "=" * 60)
-    print("  DESIGN POINT SUMMARY")
-    print("=" * 60)
-    print(f"  GLB size    : {params['GLB_KB']} KB")
-    print(f"  PE array    : {params['FANOUT_X']} x {params['FANOUT_Y']}"
-          f"  ({params['FANOUT_X'] * params['FANOUT_Y']} PEs)")
-    print(f"  Clock       : {params['FREQ_GHZ']} GHz")
-    print(f"  Batch size  : {params['BATCH_SIZE']}")
-    if stats:
-        print()
-        for k, v in stats.items():
-            print(f"  {k:<20}: {v}")
-    else:
-        print("\n  (No parsed stats — check run directory for raw output)")
-    print("=" * 60 + "\n")
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -165,65 +106,18 @@ def print_summary(params: dict, stats: dict | None) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Map TinyYOLOv2 workload onto the custom edge accelerator.",
+        description="Sweep TinyYOLOv2 design space via accelforge and report energy.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-
-    # Single design-point knobs
-    p.add_argument("--glb-kb",    type=int,   default=DEFAULTS["GLB_KB"],
-                   metavar="KB",   help="Global buffer size in KB")
-    p.add_argument("--fanout-x",  type=int,   default=DEFAULTS["FANOUT_X"],
-                   metavar="N",    help="PE array fanout in X (input reuse)")
-    p.add_argument("--fanout-y",  type=int,   default=DEFAULTS["FANOUT_Y"],
-                   metavar="N",    help="PE array fanout in Y (output reuse)")
-    p.add_argument("--freq-ghz",  type=float, default=DEFAULTS["FREQ_GHZ"],
-                   metavar="GHZ",  help="Clock frequency in GHz")
-    p.add_argument("--batch-size",type=int,   default=DEFAULTS["BATCH_SIZE"],
-                   metavar="B",    help="Inference batch size")
-
-    # Sweep mode: each flag accepts a list of values
-    p.add_argument("--sweep-glb",    nargs="+", type=int,   metavar="KB",
-                   help="Sweep over multiple GLB sizes (overrides --glb-kb)")
-    p.add_argument("--sweep-fanout", nargs="+", type=int,   metavar="N",
-                   help="Sweep over fanout values applied to BOTH X and Y")
-    p.add_argument("--sweep-freq",   nargs="+", type=float, metavar="GHZ",
-                   help="Sweep over clock frequencies")
-
-    # Timeloop pass-through
-    p.add_argument("--mapper-args", nargs=argparse.REMAINDER, default=[],
-                   metavar="ARG",
-                   help="Extra arguments forwarded verbatim to timeloop-mapper")
-
-    # Utility flags
-    p.add_argument("--dry-run",  action="store_true",
-                   help="Render YAMLs but do not invoke Timeloop")
-    p.add_argument("--clean",    action="store_true",
-                   help="Delete existing output directories before running")
-
+    p.add_argument("--glb-kb",       type=int,   default=DEFAULTS["GLB_KB"])
+    p.add_argument("--fanout-x",     type=int,   default=DEFAULTS["FANOUT_X"])
+    p.add_argument("--fanout-y",     type=int,   default=DEFAULTS["FANOUT_Y"])
+    p.add_argument("--freq-ghz",     type=float, default=DEFAULTS["FREQ_GHZ"])
+    p.add_argument("--batch-size",   type=int,   default=DEFAULTS["BATCH_SIZE"])
+    p.add_argument("--sweep-glb",    nargs="+",  type=int,   metavar="KB")
+    p.add_argument("--sweep-fanout", nargs="+",  type=int,   metavar="N")
+    p.add_argument("--sweep-freq",   nargs="+",  type=float, metavar="GHZ")
     return p
-
-
-def build_param_grid(args: argparse.Namespace) -> list[dict]:
-    """
-    Build a list of parameter dicts to evaluate.
-    Sweep args take priority over single-value args.
-    """
-    glb_values    = args.sweep_glb    or [args.glb_kb]
-    fanout_values = args.sweep_fanout or [args.fanout_x]   # applied to both X/Y
-    freq_values   = args.sweep_freq   or [args.freq_ghz]
-
-    grid = []
-    for glb, fanout, freq in itertools.product(glb_values, fanout_values, freq_values):
-        grid.append({
-            **DEFAULTS,
-            "GLB_KB":    glb,
-            "FANOUT_X":  fanout,
-            "FANOUT_Y":  fanout,
-            "FREQ_GHZ":  freq,
-            "MAC_TPT":   freq,        # keep in sync
-            "BATCH_SIZE": args.batch_size,
-        })
-    return grid
 
 
 # ---------------------------------------------------------------------------
@@ -231,61 +125,57 @@ def build_param_grid(args: argparse.Namespace) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = build_parser()
-    args   = parser.parse_args()
-
-    # Sanity-check that source files exist
-    for path, label in [(WORKLOAD_SRC, "Workload"), (ARCH_SRC, "Architecture")]:
-        if not path.exists():
-            print(f"[ERROR] {label} file not found: {path}", file=sys.stderr)
-            sys.exit(1)
-
+    parser    = build_parser()
+    args      = parser.parse_args()
     param_grid = build_param_grid(args)
-    print(f"[run_mapping] {len(param_grid)} design point(s) to evaluate.\n")
+    n          = len(param_grid)
 
-    all_stats = []
+    print(f"Sweeping {n} design point(s)...\n")
+    results = []   # list of (energy, params)
 
     for i, params in enumerate(param_grid, 1):
-        print(f"--- Design point {i}/{len(param_grid)} ---")
+        print(f"[{i}/{n}] {label(params)}", end="  ", flush=True)
 
-        run_dir = make_run_dir(params)
+        try:
+            spec = af.Spec.from_yaml(
+                ARCH_SRC,
+                WORKLOAD_SRC,
+                jinja_parse_data=params,
+            )
+            mappings = spec.map_workload_to_arch()
+            energy   = extract_energy(mappings)
 
-        if args.clean and run_dir.exists():
-            shutil.rmtree(run_dir)
-            run_dir.mkdir(parents=True)
-
-        workload_yaml, arch_yaml = write_rendered_yamls(run_dir, params)
-        print(f"[run_mapping] Rendered YAMLs written to: {run_dir}")
-
-        if args.dry_run:
-            print("[run_mapping] --dry-run set, skipping Timeloop invocation.")
-            print_summary(params, stats=None)
+        except Exception as e:
+            print(f"FAILED ({e})")
             continue
 
-        rc = run_timeloop(run_dir, workload_yaml, arch_yaml, args.mapper_args)
+        if energy is None:
+            print("FAILED (could not parse energy from mappings)")
+            print("  >> mappings object:", type(mappings), dir(mappings))
+            continue
 
-        if rc != 0:
-            print(f"[WARNING] timeloop-mapper exited with code {rc} "
-                  f"for design point {i}. Check {run_dir} for logs.")
+        print(f"energy = {energy:.4e} pJ")
+        results.append((energy, params))
 
-        stats = parse_stats(run_dir)
-        print_summary(params, stats)
-        all_stats.append({"params": params, "stats": stats, "run_dir": str(run_dir)})
+    if not results:
+        print("\nNo successful runs to report.")
+        sys.exit(1)
 
-    # If we swept multiple points, write a consolidated summary CSV
-    if len(param_grid) > 1:
-        import csv
-        summary_csv = OUTPUT_ROOT / "sweep_summary.csv"
-        fieldnames  = list(DEFAULTS.keys()) + ["energy", "cycles",
-                                                "utilization", "run_dir"]
-        with summary_csv.open("w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-            writer.writeheader()
-            for entry in all_stats:
-                row = {**entry["params"], **(entry["stats"] or {}),
-                       "run_dir": entry["run_dir"]}
-                writer.writerow(row)
-        print(f"[run_mapping] Sweep summary written to: {summary_csv}")
+    results.sort(key=lambda x: x[0])
+
+    print("\n" + "=" * 70)
+    print(f"  SWEEP RESULTS  ({len(results)}/{n} succeeded, ranked by energy)")
+    print("=" * 70)
+    print(f"  {'Rank':<5}  {'Energy (pJ)':<16}  {'Design Point'}")
+    print(f"  {'-'*5}  {'-'*16}  {'-'*40}")
+    for rank, (energy, params) in enumerate(results, 1):
+        marker = "  <-- BEST" if rank == 1 else ""
+        print(f"  {rank:<5}  {energy:<16.4e}  {label(params)}{marker}")
+    print("=" * 70)
+
+    best_energy, best_params = results[0]
+    print(f"\nBest energy : {best_energy:.4e} pJ")
+    print(f"Best config : {label(best_params)}\n")
 
 
 if __name__ == "__main__":

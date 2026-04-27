@@ -1,98 +1,140 @@
-# TinyYOLOv2 Workload — 400x400 Input Resolution
-# ================================================
-# Natural convolution form (not pre-expanded im2col).
-# Activation tensors are threaded between layers so the
-# mapper can keep them in GLB as producer-consumer pairs.
-# Pooling folded into output spatial dims (omitted as einsum).
-
 workload:
   rank_sizes:
     {% set BATCH_SIZE = BATCH_SIZE | default(1) %}
     B: {{BATCH_SIZE}}
 
-    # --- Activation spatial dims (post-pool at each stage) ---
-    P0: 400   Q0: 400   # raw input spatial
-    P1: 200   Q1: 200   # after L1 + pool
-    P2: 100   Q2: 100   # after L2 + pool
-    P3: 50    Q3: 50    # after L3 + pool
-    P4: 25    Q4: 25    # after L4 + pool
-    P5: 13    Q5: 13    # after L5 + pool (ceil)
-                        # L6-L9 remain 13x13
+    # L1: 400x400, 3->16
+    P_A: 400
+    Q_A: 400
+    C_A: 3
+    K_A: 16
 
-    # --- Channel widths ---
-    C0: 3               # RGB input
-    K1: 16
-    K2: 32
-    K3: 64
-    K4: 128
-    K5: 256
-    K6: 512
-    K7: 1024
-    K8: 1024
-    K9: 125
+    # L2: 200x200 (post-pool), 16->32
+    P_B: 200
+    Q_B: 200
+    K_B: 32
 
-    # --- Kernel spatial dims ---
-    R3: 3   S3: 3       # used by L1-L8
-    R1: 1   S1: 1       # used by L9 (1x1 conv)
+    # L3: 100x100 (post-pool), 32->64
+    P_C: 100
+    Q_C: 100
+    K_C: 64
+
+    # L4: 50x50 (post-pool), 64->128
+    P_D: 50
+    Q_D: 50
+    K_D: 128
+
+    # L5: 25x25 (post-pool), 128->256
+    P_E: 25
+    Q_E: 25
+    K_E: 256
+
+    # L6-L9: all 13x13, shared spatial dims for threading
+    P_F: 13
+    Q_F: 13
+    K_F: 512
+    K_G: 1024
+    K_H: 1024
+    K_I: 125
+
+    # Kernel dims
+    R: 3
+    S: 3
 
   bits_per_value: {All: 8}
-
-  # Weights stay persistent across all layers.
-  # Intermediate activations (act1..act8) are transient — they
-  # should live in GLB and be consumed before eviction.
   persistent_tensors: weight - Intermediates
 
   einsums:
-  # Natural conv form: act_out[b,p,q,k] += act_in[b, p+r, q+s, c] * W[k,r,s,c]
-  # Shared activation names across producer/consumer pairs are what
-  # enables the mapper to keep them in GLB without a DRAM round-trip.
 
   - name: L1
-    einsum: "act1[b, p1, q1, k1] += act0[b, p1+r, q1+s, c0] * L1_W[k1, r, s, c0]"
-    domain: {r: R3, s: S3}
+    tensor_accesses:
+    - name: act_0
+      projection: {P_A: p_a + r, Q_A: q_a + s, C_A: c_a, B: b}
+    - {name: L1_W, projection: [k_a, r, s, c_a]}
+    - {name: act_1, projection: [b, p_a, q_a, k_a], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_0, weight: L1_W, output: act_1}
 
   - name: L2
-    einsum: "act2[b, p2, q2, k2] += act1[b, p2+r, q2+s, k1] * L2_W[k2, r, s, k1]"
-    domain: {r: R3, s: S3}
+    tensor_accesses:
+    - name: act_1_pooled
+      projection: {P_B: p_b + r, Q_B: q_b + s, K_A: k_a, B: b}
+    - {name: L2_W, projection: [k_b, r, s, k_a]}
+    - {name: act_2, projection: [b, p_b, q_b, k_b], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_1_pooled, weight: L2_W, output: act_2}
 
   - name: L3
-    einsum: "act3[b, p3, q3, k3] += act2[b, p3+r, q3+s, k2] * L3_W[k3, r, s, k2]"
-    domain: {r: R3, s: S3}
+    tensor_accesses:
+    - name: act_2_pooled
+      projection: {P_C: p_c + r, Q_C: q_c + s, K_B: k_b, B: b}
+    - {name: L3_W, projection: [k_c, r, s, k_b]}
+    - {name: act_3, projection: [b, p_c, q_c, k_c], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_2_pooled, weight: L3_W, output: act_3}
 
   - name: L4
-    einsum: "act4[b, p4, q4, k4] += act3[b, p4+r, q4+s, k3] * L4_W[k4, r, s, k3]"
-    domain: {r: R3, s: S3}
+    tensor_accesses:
+    - name: act_3_pooled
+      projection: {P_D: p_d + r, Q_D: q_d + s, K_C: k_c, B: b}
+    - {name: L4_W, projection: [k_d, r, s, k_c]}
+    - {name: act_4, projection: [b, p_d, q_d, k_d], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_3_pooled, weight: L4_W, output: act_4}
 
   - name: L5
-    einsum: "act5[b, p5, q5, k5] += act4[b, p5+r, q5+s, k4] * L5_W[k5, r, s, k4]"
-    domain: {r: R3, s: S3}
+    tensor_accesses:
+    - name: act_4_pooled
+      projection: {P_E: p_e + r, Q_E: q_e + s, K_D: k_d, B: b}
+    - {name: L5_W, projection: [k_e, r, s, k_d]}
+    - {name: act_5, projection: [b, p_e, q_e, k_e], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_4_pooled, weight: L5_W, output: act_5}
 
   - name: L6
-    einsum: "act6[b, p5, q5, k6] += act5[b, p5+r, q5+s, k5] * L6_W[k6, r, s, k5]"
-    domain: {r: R3, s: S3}
+    tensor_accesses:
+    - name: act_5_pooled
+      projection: {P_F: p_f + r, Q_F: q_f + s, K_E: k_e, B: b}
+    - {name: L6_W, projection: [k_f, r, s, k_e]}
+    - {name: act_6, projection: [b, p_f, q_f, k_f], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_5_pooled, weight: L6_W, output: act_6}
 
   - name: L7
-    einsum: "act7[b, p5, q5, k7] += act6[b, p5+r, q5+s, k6] * L7_W[k7, r, s, k6]"
-    domain: {r: R3, s: S3}
+    tensor_accesses:
+    - name: act_6
+      projection: {B: b, P_F: p_f + r, Q_F: q_f + s, K_F: k_f}
+    - {name: L7_W, projection: [k_g, r, s, k_f]}
+    - {name: act_7, projection: [b, p_f, q_f, k_g], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_6, weight: L7_W, output: act_7}
 
   - name: L8
-    einsum: "act8[b, p5, q5, k8] += act7[b, p5+r, q5+s, k7] * L8_W[k8, r, s, k7]"
-    domain: {r: R3, s: S3}
+    tensor_accesses:
+    - name: act_7
+      projection: {B: b, P_F: p_f + r, Q_F: q_f + s, K_G: k_g}
+    - {name: L8_W, projection: [k_h, r, s, k_g]}
+    - {name: act_8, projection: [b, p_f, q_f, k_h], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_7, weight: L8_W, output: act_8}
 
   - name: L9
-    einsum: "act9[b, p5, q5, k9] += act8[b, p5+r, q5+s, k8] * L9_W[k9, r, s, k8]"
-    domain: {r: R1, s: S1}
+    tensor_accesses:
+    - {name: act_8,  projection: [b, p_f, q_f, k_h]}
+    - {name: L9_W,   projection: [k_i, k_h]}
+    - {name: act_9,  projection: [b, p_f, q_f, k_i], output: True}
+    renames: {input: act_8, weight: L9_W, output: act_9}
 
 renames:
   einsums:
   - name: default
     tensor_accesses:
     - name: input
-      source: Inputs & Intermediates if len(All) == 3 else Inputs
+      source: Inputs | Intermediates
       expected_count: 1
     - name: output
       source: Outputs
       expected_count: 1
     - name: weight
       source: ~(input | output)
-      expected_count: 1 if len(All) == 3 else 0
+      expected_count: 1
