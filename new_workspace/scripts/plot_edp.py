@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 WORKSPACE    = Path(__file__).resolve().parent.parent
 WORKLOAD_SRC = str(WORKSPACE / "workloads" / "tiny_yolo_test.yaml")
 ARCH_SRC     = str(WORKSPACE / "arches"    / "custom_accelerator_sweep.yaml")
-FANOUT_X = 64
-FANOUT_Y = 64
+FANOUT_X = 8
+FANOUT_Y = 8
 
 LAYERS = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9"]
 

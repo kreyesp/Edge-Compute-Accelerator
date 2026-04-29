@@ -1,0 +1,41 @@
+arch:
+  extra_attributes_for_all_component_models: {tech_node: 16e-9}
+  nodes:
+  - !Memory
+    name: MainMemory
+    component_class: LPDDR4
+    size: inf
+    tensors: {keep: ~Intermediates, may_keep: All}
+
+  - !Memory
+    name: GlobalBuffer
+    size: {{GLB_KB}} * 1024 * 8
+    area: {{GLB_KB}} / 1024 * 0.04e-6
+    leak_power: {{GLB_KB}} / 1024 * 0.01
+    total_latency: max(read_latency, write_latency)
+    actions:
+    - {name: read,  energy: 1.88e-12, latency: 1 / (64 * {{FREQ_GHZ}} * 1e9)}
+    - {name: write, energy: 2.36e-12, latency: 1 / (64 * {{FREQ_GHZ}} * 1e9)}
+    tensors: {keep: All}
+
+  - !Container
+    name: ProcessingElement
+    spatial:
+    - {name: reuse_input,  fanout: {{FANOUT_X}}, may_reuse: input,  reuse: input,  min_usage: 1}
+    - {name: reuse_output, fanout: {{FANOUT_Y}}, may_reuse: output, reuse: output, min_usage: 1}
+
+  - !Memory
+    name: Register
+    size: weight.bits_per_value if weight else 1
+    area: 0
+    leak_power: 5e-3
+    actions:
+    - {name: read,  energy: 0, latency: 0}
+    - {name: write, energy: 0, latency: 0}
+    tensors: {keep: weight}
+
+  - !Compute
+    name: MAC
+    component_class: IntMAC
+    leak_power: 5e-3
+    extra_attributes_for_component_model: {multiplier_width: 8, adder_width: 16}
