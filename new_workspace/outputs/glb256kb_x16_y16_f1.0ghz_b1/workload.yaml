@@ -1,0 +1,98 @@
+# TinyYOLOv2 Workload — 400x400 Input Resolution
+# ================================================
+# Natural convolution form (not pre-expanded im2col).
+# Activation tensors are threaded between layers so the
+# mapper can keep them in GLB as producer-consumer pairs.
+# Pooling folded into output spatial dims (omitted as einsum).
+
+workload:
+  rank_sizes:
+    
+    B: 1
+
+    # --- Activation spatial dims (post-pool at each stage) ---
+    P0: 400   Q0: 400   # raw input spatial
+    P1: 200   Q1: 200   # after L1 + pool
+    P2: 100   Q2: 100   # after L2 + pool
+    P3: 50    Q3: 50    # after L3 + pool
+    P4: 25    Q4: 25    # after L4 + pool
+    P5: 13    Q5: 13    # after L5 + pool (ceil)
+                        # L6-L9 remain 13x13
+
+    # --- Channel widths ---
+    C0: 3               # RGB input
+    K1: 16
+    K2: 32
+    K3: 64
+    K4: 128
+    K5: 256
+    K6: 512
+    K7: 1024
+    K8: 1024
+    K9: 125
+
+    # --- Kernel spatial dims ---
+    R3: 3   S3: 3       # used by L1-L8
+    R1: 1   S1: 1       # used by L9 (1x1 conv)
+
+  bits_per_value: {All: 8}
+
+  # Weights stay persistent across all layers.
+  # Intermediate activations (act1..act8) are transient — they
+  # should live in GLB and be consumed before eviction.
+  persistent_tensors: weight - Intermediates
+
+  einsums:
+  # Natural conv form: act_out[b,p,q,k] += act_in[b, p+r, q+s, c] * W[k,r,s,c]
+  # Shared activation names across producer/consumer pairs are what
+  # enables the mapper to keep them in GLB without a DRAM round-trip.
+
+  - name: L1
+    einsum: "act1[b, p1, q1, k1] += act0[b, p1+r, q1+s, c0] * L1_W[k1, r, s, c0]"
+    domain: {r: R3, s: S3}
+
+  - name: L2
+    einsum: "act2[b, p2, q2, k2] += act1[b, p2+r, q2+s, k1] * L2_W[k2, r, s, k1]"
+    domain: {r: R3, s: S3}
+
+  - name: L3
+    einsum: "act3[b, p3, q3, k3] += act2[b, p3+r, q3+s, k2] * L3_W[k3, r, s, k2]"
+    domain: {r: R3, s: S3}
+
+  - name: L4
+    einsum: "act4[b, p4, q4, k4] += act3[b, p4+r, q4+s, k3] * L4_W[k4, r, s, k3]"
+    domain: {r: R3, s: S3}
+
+  - name: L5
+    einsum: "act5[b, p5, q5, k5] += act4[b, p5+r, q5+s, k4] * L5_W[k5, r, s, k4]"
+    domain: {r: R3, s: S3}
+
+  - name: L6
+    einsum: "act6[b, p5, q5, k6] += act5[b, p5+r, q5+s, k5] * L6_W[k6, r, s, k5]"
+    domain: {r: R3, s: S3}
+
+  - name: L7
+    einsum: "act7[b, p5, q5, k7] += act6[b, p5+r, q5+s, k6] * L7_W[k7, r, s, k6]"
+    domain: {r: R3, s: S3}
+
+  - name: L8
+    einsum: "act8[b, p5, q5, k8] += act7[b, p5+r, q5+s, k7] * L8_W[k8, r, s, k7]"
+    domain: {r: R3, s: S3}
+
+  - name: L9
+    einsum: "act9[b, p5, q5, k9] += act8[b, p5+r, q5+s, k8] * L9_W[k9, r, s, k8]"
+    domain: {r: R1, s: S1}
+
+renames:
+  einsums:
+  - name: default
+    tensor_accesses:
+    - name: input
+      source: Inputs & Intermediates if len(All) == 3 else Inputs
+      expected_count: 1
+    - name: output
+      source: Outputs
+      expected_count: 1
+    - name: weight
+      source: ~(input | output)
+      expected_count: 1 if len(All) == 3 else 0

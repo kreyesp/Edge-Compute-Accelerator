@@ -1,0 +1,42 @@
+arch:
+  nodes:
+  - !Memory
+    name: MainMemory
+    size: inf
+    area: 0
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 8e-12,   latency: 1 / (8 * 19.2e9)}
+    - {name: write, energy: 8e-12,   latency: 1 / (8 * 19.2e9)}
+    tensors: {keep: ~Intermediates, may_keep: All}
+
+  - !Memory
+    name: GlobalBuffer
+    size: {{GLB_KB}} * 1024 * 8
+    area: 0
+    total_latency: max(read_latency, write_latency)
+    leak_power: 0
+    actions:
+    - {name: read,  energy: 1.88e-12, latency: 1 / (64 * {{FREQ_GHZ}} * 1e9)}
+    - {name: write, energy: 2.36e-12, latency: 1 / (64 * {{FREQ_GHZ}} * 1e9)}
+    tensors: {keep: All}
+
+  - !Container
+    name: ProcessingElement
+    spatial:
+    - {name: spatial_x,  fanout: {{FANOUT_X}},  min_usage: 1}
+    - {name: spatial_y, fanout: {{FANOUT_Y}}, min_usage: 1}
+
+  - !Memory
+    name: Register
+    size: weight.bits_per_value if weight else 1
+    area: 0
+    component_class: Dummy
+    tensors: {keep: weight}
+
+  - !Compute
+    name: MAC
+    area: 0
+    leak_power: 0
+    actions:
+    - {name: compute, energy: 0.084e-12, latency: 1 / ({{FREQ_GHZ}} * 1e9)}

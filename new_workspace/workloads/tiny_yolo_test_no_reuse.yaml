@@ -1,0 +1,140 @@
+workload:
+  rank_sizes:
+    {% set BATCH_SIZE = BATCH_SIZE | default(1) %}
+    B: {{BATCH_SIZE}}
+
+    # L1: 400x400, 3->16
+    P_A: 400
+    Q_A: 400
+    C_A: 3
+    K_A: 16
+
+    # L2: 200x200 (post-pool), 16->32
+    P_B: 200
+    Q_B: 200
+    K_B: 32
+
+    # L3: 100x100 (post-pool), 32->64
+    P_C: 100
+    Q_C: 100
+    K_C: 64
+
+    # L4: 50x50 (post-pool), 64->128
+    P_D: 50
+    Q_D: 50
+    K_D: 128
+
+    # L5: 25x25 (post-pool), 128->256
+    P_E: 25
+    Q_E: 25
+    K_E: 256
+
+    # L6-L9: all 13x13, shared spatial dims for threading
+    P_F: 13
+    Q_F: 13
+    K_F: 512
+    K_G: 1024
+    K_H: 1024
+    K_I: 125
+
+    # Kernel dims
+    R: 3
+    S: 3
+
+  bits_per_value: {All: 8}
+  persistent_tensors: weight
+
+  einsums:
+
+  - name: L1
+    tensor_accesses:
+    - name: act_0
+      projection: {P_A: p_a + r, Q_A: q_a + s, C_A: c_a, B: b}
+    - {name: L1_W, projection: [k_a, r, s, c_a]}
+    - {name: act_1, projection: [b, p_a, q_a, k_a], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_0, weight: L1_W, output: act_1}
+
+  - name: L2
+    tensor_accesses:
+    - name: act_1_pooled
+      projection: {P_B: p_b + r, Q_B: q_b + s, K_A: k_a, B: b}
+    - {name: L2_W, projection: [k_b, r, s, k_a]}
+    - {name: act_2, projection: [b, p_b, q_b, k_b], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_1_pooled, weight: L2_W, output: act_2}
+
+  - name: L3
+    tensor_accesses:
+    - name: act_2_pooled
+      projection: {P_C: p_c + r, Q_C: q_c + s, K_B: k_b, B: b}
+    - {name: L3_W, projection: [k_c, r, s, k_b]}
+    - {name: act_3, projection: [b, p_c, q_c, k_c], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_2_pooled, weight: L3_W, output: act_3}
+
+  - name: L4
+    tensor_accesses:
+    - name: act_3_pooled
+      projection: {P_D: p_d + r, Q_D: q_d + s, K_C: k_c, B: b}
+    - {name: L4_W, projection: [k_d, r, s, k_c]}
+    - {name: act_4, projection: [b, p_d, q_d, k_d], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_3_pooled, weight: L4_W, output: act_4}
+
+  - name: L5
+    tensor_accesses:
+    - name: act_4_pooled
+      projection: {P_E: p_e + r, Q_E: q_e + s, K_D: k_d, B: b}
+    - {name: L5_W, projection: [k_e, r, s, k_d]}
+    - {name: act_5, projection: [b, p_e, q_e, k_e], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_4_pooled, weight: L5_W, output: act_5}
+
+  - name: L6
+    tensor_accesses:
+    - name: act_5_pooled
+      projection: {P_F: p_f + r, Q_F: q_f + s, K_E: k_e, B: b}
+    - {name: L6_W, projection: [k_f, r, s, k_e]}
+    - {name: act_6, projection: [b, p_f, q_f, k_f], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_5_pooled, weight: L6_W, output: act_6}
+
+  - name: L7
+    tensor_accesses:
+    - name: act_6_pooled
+      projection: {B: b, P_F: p_f + r, Q_F: q_f + s, K_F: k_f}
+    - {name: L7_W, projection: [k_g, r, s, k_f]}
+    - {name: act_7, projection: [b, p_f, q_f, k_g], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_6_pooled, weight: L7_W, output: act_7}
+
+  - name: L8
+    tensor_accesses:
+    - name: act_7_pooled
+      projection: {B: b, P_F: p_f + r, Q_F: q_f + s, K_G: k_g}
+    - {name: L8_W, projection: [k_h, r, s, k_g]}
+    - {name: act_8, projection: [b, p_f, q_f, k_h], output: True}
+    iteration_space_shape: [0 <= r < 3, 0 <= s < 3]
+    renames: {input: act_7_pooled, weight: L8_W, output: act_8}
+
+  - name: L9
+    tensor_accesses:
+    - {name: act_8_pooled,  projection: [b, p_f, q_f, k_h]}
+    - {name: L9_W,   projection: [k_i, k_h]}
+    - {name: act_9,  projection: [b, p_f, q_f, k_i], output: True}
+    renames: {input: act_8_pooled, weight: L9_W, output: act_9}
+
+renames:
+  einsums:
+  - name: default
+    tensor_accesses:
+    - name: input
+      source: Inputs 
+      expected_count: 1
+    - name: output
+      source: Outputs
+      expected_count: 1
+    - name: weight
+      source: ~(input | output)
+      expected_count: 1
