@@ -1,4 +1,5 @@
 arch:
+  extra_attributes_for_all_component_models: {tech_node: 16e-9}
   nodes:
   - !Memory
     name: MainMemory
@@ -10,12 +11,13 @@ arch:
     - {name: write, energy: 8e-12,   latency: 1 / (8 * 19.2e9)}
     tensors: {keep: ~Intermediates, may_keep: All}
 
+
   - !Memory
     name: GlobalBuffer
     size: {{GLB_KB}} * 1024 * 8
-    area: 0
+    area: 2.4e-7 * {{GLB_KB}} / 64   # scaled from Simba's 64KB = 2.4e-7 m²
+    leak_power: 9.52e-6 * {{GLB_KB}} / 64   # scales from Simba's 64KB baseline
     total_latency: max(read_latency, write_latency)
-    leak_power: 0
     actions:
     - {name: read,  energy: 1.88e-12, latency: 1 / (64 * {{FREQ_GHZ}} * 1e9)}
     - {name: write, energy: 2.36e-12, latency: 1 / (64 * {{FREQ_GHZ}} * 1e9)}
@@ -31,12 +33,14 @@ arch:
     name: Register
     size: weight.bits_per_value if weight else 1
     area: 0
-    component_class: Dummy
+    leak_power: 5e-6
+    actions:
+    - {name: read,  energy: 0, latency: 0}
+    - {name: write, energy: 0, latency: 0}
     tensors: {keep: weight}
 
   - !Compute
     name: MAC
-    area: 0
-    leak_power: 0
-    actions:
-    - {name: compute, energy: 0.084e-12, latency: 1 / ({{FREQ_GHZ}} * 1e9)}
+    component_class: IntMAC
+    leak_power: 1.36e-6
+    extra_attributes_for_component_model: {multiplier_width: 8, adder_width: 16}

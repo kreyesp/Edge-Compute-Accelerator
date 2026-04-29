@@ -6,9 +6,12 @@ import matplotlib.ticker as ticker
 WORKSPACE    = Path(__file__).resolve().parent.parent
 WORKLOAD_SRC = str(WORKSPACE / "workloads" / "tiny_yolo_test.yaml")
 ARCH_SRC     = str(WORKSPACE / "arches"    / "custom_accelerator_sweep_NON_IDEAL.yaml")
+# WORKLOAD_SRC = str(WORKSPACE / "workloads" / "tiny_yolo_test_no_reuse.yaml")
+# ARCH_SRC     = str(WORKSPACE / "arches"    / "accelerator_sweep_no_reuse.yaml")
 
 LAYERS   = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9"]
 FANOUTS  = [1, 2, 4, 8, 16, 32, 64]
+# FANOUTS  = [1, 4, 16, 64]
 FREQ_GHZ = 1.0
 GLB_KB   = 1024
 

@@ -37,6 +37,6 @@ arch:
   - !Compute
     name: MAC
     area: 0
-    leak_power: 0
+    leak_power: 1.36e-6
     actions:
     - {name: compute, energy: 0.084e-12, latency: 1 / ({{FREQ_GHZ}} * 1e9)}
