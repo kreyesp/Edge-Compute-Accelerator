@@ -27,14 +27,16 @@ import accelforge as af
 SCRIPT_DIR   = Path(__file__).resolve().parent
 WORKSPACE    = SCRIPT_DIR.parent
 WORKLOAD_SRC = str(WORKSPACE / "workloads" / "tiny_yolo_test.yaml")
-ARCH_SRC     = str(WORKSPACE / "arches"    / "custom_accelerator_sweep.yaml")
+# ARCH_SRC     = str(WORKSPACE / "arches"    / "custom_accelerator_sweep.yaml")
+
 
 # ---------------------------------------------------------------------------
 # Default design-point parameters
 # ---------------------------------------------------------------------------
 
 DEFAULTS = dict(
-    GLB_KB     = 1024,
+    # GLB_KB     = 1024,
+    GLB_KB     = 256,
     FANOUT_X   = 64,
     FANOUT_Y   = 64,
     FREQ_GHZ   = 1.0,
