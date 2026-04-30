@@ -16,7 +16,7 @@ arch:
     name: GlobalBuffer
     size: 1024*1024*128*8 # 128MB
     total_latency: max(read_latency, write_latency) # Separate ports
-    leak_power: 0
+    leak_power: 9.52e-6 * 1024 / 64 
     area: 112e-6 # From paper fig. 6
     actions:
     - {name: read, energy: 1.88e-12, latency: 1 / (8 * 2048e9)}
