@@ -37,7 +37,7 @@ arch:
     name: AccumulationBuffer
     component_class: SmartBufferSRAM
     size: 24576 # 3kB
-    bits_per_value: {output: 3 * output.bits_per_value}
+    # bits_per_value: {output: 3 * output.bits_per_value}
     tensors: {keep: output}
 
   - !Container
@@ -48,7 +48,7 @@ arch:
 
   - !Memory
     name: Register
-    size: weight.bits_per_value if weight else 0
+    size: weight.bits_per_value if weight else 1
     component_class: Dummy
     tensors: {keep: weight}
 

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 WORKSPACE    = Path(__file__).resolve().parent.parent
 WORKLOAD_SRC = str(WORKSPACE / "workloads" / "tiny_yolo_test.yaml")
 # ARCH_SRC     = str(WORKSPACE / "arches"    / "custom_accelerator_sweep.yaml")
-ARCH_SRC     = str(WORKSPACE / "arches"    / "accelerator_sweep_no_reuse.yaml")
+ARCH_SRC     = str(WORKSPACE / "arches"    / "tpuv4_accelerator.yaml")
 FANOUT_X = 8
 FANOUT_Y = 8
 

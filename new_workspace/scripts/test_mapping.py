@@ -5,7 +5,7 @@ import os
 WORKSPACE    = Path(__file__).resolve().parent.parent
 WORKLOAD_SRC = str(WORKSPACE / "workloads" / "tiny_yolo_test.yaml")
 # ARCH_SRC     = str(WORKSPACE / "arches"    / "custom_accelerator_sweep.yaml")
-ARCH_SRC     = str(WORKSPACE / "arches"    / "simba_accelerator.yaml")
+ARCH_SRC     = str(WORKSPACE / "arches"    / "tpuv4_accelerator.yaml")
 
 spec     = af.Spec.from_yaml(ARCH_SRC, WORKLOAD_SRC,
                               jinja_parse_data={})
