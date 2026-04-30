@@ -83,13 +83,9 @@ def total_plot(ax, y, title, ylabel, color):
     ax.set_ylabel(ylabel)
     ax.set_xscale("log", base=2)
     ax.set_xticks(glb_kbs)
-    ax.xaxis.set_major_formatter(ticker.FuncFormatter(
-        lambda x, _: f"{int(x)}KB" if x < 1024 else f"{int(x)//1024}MB"
-    ))
-    ax.tick_params(axis="x", rotation=45)
-    ax.axvline(x=1024, color="gray", linestyle="--", alpha=0.5, label="1MB center")
+    ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x)}"))
     ax.grid(True, which="both", linestyle="--", alpha=0.4)
-    for x, y_val in zip(glb_kbs, y):
+    for x, y_val in zip(pe_counts, y):
         ax.annotate(f"{y_val:.2e}", (x, y_val), textcoords="offset points",
                     xytext=(0, 8), ha="center", fontsize=7)
 
