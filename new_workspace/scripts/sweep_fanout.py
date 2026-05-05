@@ -10,8 +10,8 @@ ARCH_SRC     = str(WORKSPACE / "arches"    / "custom_accelerator_sweep_NON_IDEAL
 # ARCH_SRC     = str(WORKSPACE / "arches"    / "accelerator_sweep_no_reuse.yaml")
 
 LAYERS   = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9"]
-# FANOUTS  = [1, 2, 4, 8, 16, 32, 64]
-FANOUTS  = [1, 4, 16, 64]
+FANOUTS  = [1, 2, 4, 8, 16, 32, 64]
+# FANOUTS  = [1, 4, 16, 64]
 FREQ_GHZ = 4.0
 GLB_KB   = 1024
 

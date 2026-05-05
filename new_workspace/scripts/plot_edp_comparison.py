@@ -29,10 +29,10 @@ print("Running workload mapping for all accelerators. This may take a moment...\
 # Iterate through each architecture, run the mapping, and extract data
 for arch_name, arch_filename in ARCHITECTURES.items():
     arch_src = str(WORKSPACE / "arches" / arch_filename)
-    
+
     # Jinja params are safely passed to all; unused ones will be ignored by NVDLA/TPUv4
     spec = af.Spec.from_yaml(
-        arch_src, 
+        arch_src,
         WORKLOAD_SRC,
         jinja_parse_data={
             "GLB_KB"  : 1024,
@@ -50,14 +50,14 @@ for arch_name, arch_filename in ARCHITECTURES.items():
     for layer in LAYERS:
         e_cols = [c for c in cols if c.startswith(f"{layer}<SEP>energy<SEP>")]
         l_cols = [c for c in cols if c.startswith(f"{layer}<SEP>latency<SEP>")]
-        
+
         e = data[e_cols].sum(axis=1).values[0]
         l = data[l_cols].max(axis=1).values[0]
-        
+
         results_energy[arch_name].append(e)
         results_latency[arch_name].append(l)
         results_edp[arch_name].append(e * l)
-        
+
     print(f"[{arch_name}] processing complete.")
 
 # --- Plotting ---
@@ -70,11 +70,11 @@ colors  = ['steelblue', 'darkorange', 'seagreen']
 def line_plot(ax, data_dict, title, ylabel):
     for i, (arch_name, values) in enumerate(data_dict.items()):
         ax.plot(
-            LAYERS, values, 
-            marker=markers[i], 
-            color=colors[i], 
-            label=arch_name, 
-            linewidth=2, 
+            LAYERS, values,
+            marker=markers[i],
+            color=colors[i],
+            label=arch_name,
+            linewidth=2,
             markersize=6
         )
     ax.set_title(title)
